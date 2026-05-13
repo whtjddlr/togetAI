@@ -1,0 +1,29 @@
+erDiagram
+    USERS ||--o{ PROJECTS : owns
+    USERS ||--o{ PROJECT_MEMBERS : joins
+    PROJECTS ||--o{ PROJECT_MEMBERS : has
+
+    PROJECTS ||--o{ DOCUMENT_SECTIONS : defines
+    PROJECTS ||--o{ DRAFT_SUBMISSIONS : receives
+    PROJECT_MEMBERS ||--o{ DRAFT_SUBMISSIONS : submits
+
+    DRAFT_SUBMISSIONS ||--o{ DRAFT_SEGMENTS : parsed_into
+    DRAFT_SEGMENTS ||--o{ EXTRACTED_IDEAS : creates
+    DOCUMENT_SECTIONS ||--o{ EXTRACTED_IDEAS : maps_to
+
+    PROJECTS ||--o{ MERGE_REPORTS : generates
+    MERGE_REPORTS ||--o{ DECISION_BLOCKS : contains
+    DOCUMENT_SECTIONS ||--o{ DECISION_BLOCKS : belongs_to
+
+    DECISION_BLOCKS ||--o{ DECISION_OPTIONS : has
+    DECISION_OPTIONS ||--o{ DECISION_OPTION_SOURCES : backed_by
+    EXTRACTED_IDEAS ||--o{ DECISION_OPTION_SOURCES : supports
+
+    PROJECTS ||--o{ FINAL_DOCUMENTS : produces
+    FINAL_DOCUMENTS ||--o{ FINAL_DOCUMENT_SECTIONS : contains
+    DOCUMENT_SECTIONS ||--o{ FINAL_DOCUMENT_SECTIONS : corresponds_to
+
+    DECISION_BLOCKS ||--o{ DECISION_LOGS : changed_by
+    USERS ||--o{ DECISION_LOGS : records
+
+    PROJECTS ||--o{ AI_JOBS : runs
