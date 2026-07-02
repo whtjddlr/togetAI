@@ -323,12 +323,16 @@ export default function App() {
           onSectionSelect={setActiveSection}
           project={workspaceState.project}
         />
-        <DecisionPanel
-          key={workspaceState.analysisRunId}
-          selectedSection={selectedSection}
-          analysisRunId={workspaceState.analysisRunId}
-          onApplyDecisionOption={applyDecisionOption}
-        />
+        {/* 워크스페이스 로드 전에 마운트하면 runId 0 기준의 빈 참여 상태가
+            localStorage에 저장돼 기존 투표/의견을 덮어쓴다. */}
+        {hasLoadedWorkspace && (
+          <DecisionPanel
+            key={workspaceState.analysisRunId}
+            selectedSection={selectedSection}
+            analysisRunId={workspaceState.analysisRunId}
+            onApplyDecisionOption={applyDecisionOption}
+          />
+        )}
       </>
     );
   };
