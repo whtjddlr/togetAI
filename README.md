@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PlanMerge
 
-## Getting Started
+여러 사람이 각자 AI로 만든 기획서 초안을 하나의 문서로 병합하면서, AI가 선택한 아이디어와 선택되지 않은 대안/충돌 의견을 섹션별로 추적하는 MVP 웹앱입니다.
 
-First, run the development server:
+## 핵심 기능
+
+- 프로젝트 목표, 공통 기준, 금지 방향 입력
+- 여러 AI 초안 붙여넣기
+- GMS API 기반 초안 분석 및 로컬 하네스 fallback
+- 섹션별 Decision Block 생성
+- 선택안, 선택 이유, 대안, 충돌 의견, 출처 확인
+- 익명 투표와 익명 의견 등록
+- Review Queue로 내보내기 전 충돌/검토/입력 부족 항목 확인
+- 워크스페이스 JSON 내보내기/가져오기
+
+## 기술 스택
+
+- Next.js 16 App Router
+- React 19
+- Tailwind CSS 4
+- TypeScript
+- GMS API compatible Responses endpoint
+- Prisma + Neon 설정 파일 포함
+
+현재 MVP는 브라우저 `localStorage` 중심으로 동작합니다. DB 연결은 이후 단계로 분리되어 있습니다.
+
+## 실행
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+브라우저에서 `http://localhost:3000`을 엽니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`.env.local`에는 실제 배포/개발 환경 값만 넣습니다.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+GMS_API_KEY="..."
+GMS_API_URL="https://gms.ssafy.io/gmsapi/api.openai.com/v1/responses"
+GMS_DEFAULT_MODEL="gpt-4.1"
+```
 
-## Learn More
+`GMS_API_KEY`가 없거나 API 호출이 실패하면 로컬 하네스 결과로 fallback됩니다.
 
-To learn more about Next.js, take a look at the following resources:
+## 검증
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run lint
+npm run build
+npm run harness:local
+npm run harness:quality
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`harness:quality`는 다음 케이스를 검사합니다.
 
-## Deploy on Vercel
+- 기본 샘플 분석
+- 12개 기획서 섹션 완성 입력
+- MVP 범위 충돌
+- 프롬프트 인젝션 문구
+- 여러 AI 모델 출처 반영
+- 빈 초안/중복 ID/초안 개수 제한
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 주요 구조
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+src/app/api/analyze/planmerge       GMS 분석 API route
+src/app/api/decision-blocks         의견 클러스터 API route
+src/planmerge/App.tsx               PlanMerge 클라이언트 앱
+src/planmerge/components            화면/패널 컴포넌트
+src/planmerge/lib/ai                분석 프로토콜, GMS 클라이언트, 의견 병합
+src/planmerge/lib                   품질 평가, override, localStorage workspace
+scripts/run-planmerge-harness.ts    기본 로컬 하네스
+scripts/run-planmerge-quality-cases.ts 품질 회귀 케이스
+docs                                기획/ERD/AI 판단 설계 문서
+```
+
+## 현재 범위
+
+MVP는 붙여넣기 기반 단일 페이지 웹앱입니다. 팀 초대, 실시간 공동 편집, 결제, Google Docs/Notion/Slack 연동, 복잡한 버전 관리는 의도적으로 제외했습니다.

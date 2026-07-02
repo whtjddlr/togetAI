@@ -1,5 +1,5 @@
-import { PlanMergeWorkbench } from "@/components/planmerge-workbench";
+import PlanMergeApp from "@/planmerge/App";
 
 export default function Home() {
-  return <PlanMergeWorkbench />;
+  return <PlanMergeApp />;
 }
