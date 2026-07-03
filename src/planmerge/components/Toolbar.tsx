@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AppView } from '../types/navigation';
 
 type ToolbarProps = {
@@ -63,6 +63,33 @@ export function Toolbar({
   sharedMode,
 }: ToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuContainerRef.current && !menuContainerRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen]);
+
   const copy = {
     ...viewCopy[activeView],
     breadcrumb: activeView === 'merge'
@@ -88,7 +115,7 @@ export function Toolbar({
           <h1 className="text-lg text-gray-900 mb-1">{copy.title}</h1>
           <div className="text-sm text-gray-600">{copy.subtitle}</div>
         </div>
-        <div className="relative flex flex-shrink-0 items-center gap-2">
+        <div ref={menuContainerRef} className="relative flex flex-shrink-0 items-center gap-2">
           <button
             type="button"
             className="px-3 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-100 transition-colors"

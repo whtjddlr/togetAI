@@ -253,7 +253,15 @@ export default function App() {
       return;
     }
 
-    const text = await file.text();
+    let text: string;
+
+    try {
+      text = await file.text();
+    } catch {
+      showNotice('파일을 읽지 못했습니다. 다시 시도해 주세요.');
+      return;
+    }
+
     const result = parseWorkspaceImport(text);
 
     if (!result.valid) {
@@ -306,7 +314,7 @@ export default function App() {
         analysisResult: applyDecisionOptionOverride(current.analysisResult, decisionBlockId, optionId),
         decisionLogs: [
           ...current.decisionLogs,
-          createDecisionOverrideLog(current.decisionLogs.length, current.analysisRunId, block, beforeOption, targetOption),
+          createDecisionOverrideLog(current.analysisRunId, block, beforeOption, targetOption),
         ],
       };
     });
@@ -390,7 +398,6 @@ export default function App() {
       <Sidebar activeView={activeView} analysisStatus={analysisStatus} onViewChange={setActiveView} />
       <div className="flex-1 min-w-0 flex flex-col">
         <Toolbar
-          key={activeView}
           activeView={activeView}
           approvalStatus={approvalStatus}
           analysisStatus={analysisStatus}
@@ -443,14 +450,13 @@ function waitForLoadingTime(milliseconds: number) {
 }
 
 function createDecisionOverrideLog(
-  logIndex: number,
   analysisRunId: number,
   block: ProtocolDecisionBlock,
   beforeOption: ProtocolDecisionOption | undefined,
   afterOption: ProtocolDecisionOption,
 ): LocalDecisionLog {
   return {
-    id: `decision-log-${logIndex + 1}`,
+    id: `decision-log-${crypto.randomUUID()}`,
     analysisRunId,
     decisionBlockId: block.id,
     sectionKey: block.sectionKey,

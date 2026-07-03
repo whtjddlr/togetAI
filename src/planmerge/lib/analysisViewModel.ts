@@ -32,6 +32,15 @@ export function createDocumentSectionsFromAnalysis(
     const finalSection = finalSectionsByKey.get(definition.key);
     const decisionBlocks = decisionBlocksByKey.get(definition.key) ?? [];
     const status = getSectionStatus(definition.key, analysisResult);
+    const decisionTraces = decisionBlocks.map((block) =>
+      createDecisionTraceFromBlock(
+        definition.key,
+        definition.title,
+        definition.sortOrder,
+        block,
+        ideasById,
+        draftsById,
+      ));
 
     return {
       number: definition.sortOrder,
@@ -39,16 +48,8 @@ export function createDocumentSectionsFromAnalysis(
       title: definition.title,
       content: finalSection?.content ?? '',
       status,
-      decisionTrace: decisionBlocks.length
-        ? createDecisionTraceFromBlocks(
-          definition.key,
-          definition.title,
-          definition.sortOrder,
-          decisionBlocks,
-          ideasById,
-          draftsById,
-        )
-        : undefined,
+      decisionTrace: decisionTraces[0],
+      decisionTraces: decisionTraces.length ? decisionTraces : undefined,
     };
   });
 }
@@ -62,15 +63,14 @@ function getSectionStatus(sectionKey: DocumentSectionKey, analysisResult: PlanMe
   return 'completed';
 }
 
-function createDecisionTraceFromBlocks(
+function createDecisionTraceFromBlock(
   sectionKey: DocumentSectionKey,
   sectionTitle: string,
   sectionNumber: number,
-  blocks: ProtocolDecisionBlock[],
+  primaryBlock: ProtocolDecisionBlock,
   ideasById: Map<string, NormalizedIdea>,
   draftsById: Map<string, LocalDraftSubmission>,
 ): DecisionTrace {
-  const primaryBlock = blocks[0];
   const selectedOption = primaryBlock.options.find((option) => option.id === primaryBlock.selectedOptionId);
   const selectedSources = selectedOption
     ? createDecisionSources(selectedOption.sourceIdeaIds, ideasById, draftsById)
@@ -131,7 +131,7 @@ function createDecisionSources(
     const draft = idea ? draftsById.get(idea.sourceDraftId) : undefined;
 
     return {
-      authorName: draft?.authorName ?? idea?.sourceDraftId ?? ideaId,
+      authorName: draft?.authorName ?? (idea ? '삭제된 초안' : ideaId),
       aiModel: draft?.aiModel ?? idea?.sourceModel ?? 'source',
       sourceDraftId: idea?.sourceDraftId,
       sourceIdeaId: ideaId,

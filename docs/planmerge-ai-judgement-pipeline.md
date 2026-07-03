@@ -1,7 +1,16 @@
 # PlanMerge AI 판단 구조 v0.1
 
-상태: Draft  
+상태: Draft (초기 설계안)  
 목표: OpenAI API를 연결해 여러 기획안 초안을 AI가 섹션별로 판단, 병합, 설명하게 하는 구조를 정의한다.
+
+> **구현 현황 (2026-07)**: 이 문서는 초기 설계안으로, 실제 구현과 다음이 다릅니다.
+> - 환경변수: `OPENAI_API_KEY` → **`GMS_API_KEY`** (GMS Responses 호환 엔드포인트), 모델 기본값 `gpt-4.1`
+> - API 라우트: `POST /api/analyze` → **`POST /api/analyze/planmerge`**
+> - 코드 위치: `src/lib/ai/` → **`src/planmerge/lib/ai/`**
+> - 검증: Zod → **수제 검증 함수** (`validatePlanMergeAnalysis` 등, 의존성 최소화)
+> - 문서에 없는 추가 구현: 검증 실패 시 repair 프롬프트 재시도, 서버측 보정(postProcess), 로컬 하네스 폴백
+>
+> 2단계 호출 구조(추출 → 병합)와 판단 원칙은 문서대로 구현되어 있습니다.
 
 ## 1. 핵심 방향
 
