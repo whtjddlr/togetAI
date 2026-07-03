@@ -124,8 +124,8 @@ export function DraftSubmitPage({ drafts, onDeleteDraft, onSubmitDraft }: DraftS
         <aside>
           <div className="mb-3 text-sm text-gray-900">제출된 초안</div>
           <div className="space-y-3">
-            {drafts.map((draft, index) => (
-              <div key={`${draft.id}-${index}`} className="rounded-md border border-gray-200 p-3">
+            {drafts.map((draft) => (
+              <div key={draft.id} className="rounded-md border border-gray-200 p-3">
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm text-gray-900">{draft.taskTitle}</div>

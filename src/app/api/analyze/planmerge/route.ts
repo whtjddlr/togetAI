@@ -22,6 +22,10 @@ import type {
   ProtocolFinalDocumentSection,
 } from '@/planmerge/lib/ai/planmergeProtocol';
 import { callGmsJson, getGmsConfig } from '@/planmerge/lib/ai/gmsServer';
+import { checkRateLimit, getClientKey } from '@/server/rateLimit';
+
+// 요청 1건이 초안 수만큼의 GMS 호출을 발생시키므로 보수적으로 제한한다.
+const RATE_LIMIT = { limit: 5, windowMs: 60_000 };
 
 const normalizedIdeaTypes = new Set<NormalizedIdeaType>([
   'problem',
@@ -453,6 +457,15 @@ function uniqueId(prefix: string, existingIds: Set<string>) {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit('analyze-planmerge', getClientKey(request), RATE_LIMIT);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { errors: ['분석 요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.'] },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+    );
+  }
+
   let body: unknown;
 
   try {

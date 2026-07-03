@@ -73,7 +73,6 @@ type OpinionPayloadParseResult =
   | {
     valid: true;
     payload: OpinionClusteringPayload;
-    prompt?: string;
     errors: [];
   }
   | {
@@ -293,7 +292,6 @@ export function parseOpinionClusteringPayload(input: unknown): OpinionPayloadPar
     maxLength: 60,
     fallback: 'service_plan',
   });
-  const prompt = typeof input.prompt === 'string' ? input.prompt : undefined;
   const decisionBlockInput = input.decisionBlock;
   const opinionsInput = input.opinions;
 
@@ -322,10 +320,6 @@ export function parseOpinionClusteringPayload(input: unknown): OpinionPayloadPar
     maxLength: 4000,
   });
   const optionsInput = decisionBlockRecord.options;
-
-  if (prompt && prompt.length > 20000) {
-    errors.push('prompt must be 20000 characters or fewer');
-  }
 
   if (!Array.isArray(optionsInput)) {
     errors.push('decisionBlock.options must be an array');
@@ -427,7 +421,6 @@ export function parseOpinionClusteringPayload(input: unknown): OpinionPayloadPar
       },
       opinions,
     },
-    prompt,
     errors: [],
   };
 }
@@ -503,10 +496,7 @@ export async function generateOpinionClusters(payload: OpinionClusteringPayload)
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        ...payload,
-        prompt: buildOpinionClusteringPrompt(payload),
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {

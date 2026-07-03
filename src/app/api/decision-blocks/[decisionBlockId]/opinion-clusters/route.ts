@@ -11,6 +11,9 @@ import type {
   OpinionClusteringResult,
 } from '@/planmerge/lib/ai/opinionClustering';
 import { callGmsJson, getGmsConfig } from '@/planmerge/lib/ai/gmsServer';
+import { checkRateLimit, getClientKey } from '@/server/rateLimit';
+
+const RATE_LIMIT = { limit: 20, windowMs: 60_000 };
 
 type RouteContext = {
   params: Promise<{
@@ -34,6 +37,15 @@ function readClusterResponse(response: { clusters?: OpinionCluster[] }) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const rateLimit = checkRateLimit('opinion-clusters', getClientKey(request), RATE_LIMIT);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { errors: ['요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.'] },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+    );
+  }
+
   const { decisionBlockId } = await context.params;
   let body: unknown;
 
@@ -79,7 +91,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const prompt = parsedPayload.prompt ?? buildOpinionClusteringPrompt(payload);
+    const prompt = buildOpinionClusteringPrompt(payload);
     const rawResult = await callGmsJson<{ clusters?: OpinionCluster[] }>(
       prompt,
       {

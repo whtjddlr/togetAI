@@ -1,3 +1,4 @@
+import { validatePlanMergeAnalysis } from './ai/planmergeProtocol';
 import type { PlanMergeAnalysisResult } from './ai/planmergeProtocol';
 
 export type ProjectSettings = {
@@ -174,10 +175,46 @@ function isValidDecisionLog(value: unknown): value is LocalDecisionLog {
   );
 }
 
+function sanitizeProjectSettings(value: unknown): ProjectSettings {
+  if (!isRecord(value)) {
+    return defaultProjectSettings;
+  }
+
+  return {
+    title: typeof value.title === 'string' ? value.title : defaultProjectSettings.title,
+    goal: typeof value.goal === 'string' ? value.goal : defaultProjectSettings.goal,
+    documentType: ['service_plan', 'prd', 'business_plan', 'feature_spec'].includes(String(value.documentType))
+      ? value.documentType as ProjectSettings['documentType']
+      : defaultProjectSettings.documentType,
+    contextPack: typeof value.contextPack === 'string' ? value.contextPack : defaultProjectSettings.contextPack,
+    forbiddenDirection: typeof value.forbiddenDirection === 'string'
+      ? value.forbiddenDirection
+      : defaultProjectSettings.forbiddenDirection,
+    outputStyle: typeof value.outputStyle === 'string' ? value.outputStyle : defaultProjectSettings.outputStyle,
+  };
+}
+
+// 손상된 analysisResult가 저장/가져오기 경로로 들어오면 렌더 크래시가 반복되므로
+// 구조 검증을 통과한 경우에만 유지한다.
+function sanitizeAnalysisResult(
+  value: unknown,
+  project: ProjectSettings,
+  drafts: LocalDraftSubmission[],
+): PlanMergeAnalysisResult | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const validation = validatePlanMergeAnalysis({ project, drafts }, value);
+
+  return validation.valid ? value as unknown as PlanMergeAnalysisResult : undefined;
+}
+
 export function createDraftSubmission(input: DraftFormInput, existingDraftCount: number): LocalDraftSubmission {
   return {
     ...input,
-    id: `local-draft-${existingDraftCount + 1}`,
+    // 개수 기반 ID는 삭제 후 추가 시 중복돼 다른 초안까지 함께 삭제된다.
+    id: `local-draft-${crypto.randomUUID()}`,
     authorName: input.authorName.trim() || `작성자 ${existingDraftCount + 1}`,
     authorRole: input.authorRole.trim() || 'Other',
     taskTitle: input.taskTitle.trim() || '추가 초안',
@@ -200,20 +237,26 @@ export function loadWorkspaceState(): LocalWorkspaceState {
 
   try {
     const parsedState = JSON.parse(rawState) as Partial<LocalWorkspaceState>;
-    const analysisRunId = parsedState.analysisRunId ?? 0;
+    const analysisRunId = typeof parsedState.analysisRunId === 'number' && Number.isFinite(parsedState.analysisRunId)
+      ? parsedState.analysisRunId
+      : 0;
+    const project = sanitizeProjectSettings(parsedState.project);
+    const storedDrafts = Array.isArray(parsedState.drafts)
+      ? parsedState.drafts.filter(isValidDraft)
+      : [];
+    const drafts = storedDrafts.length ? storedDrafts : defaultDrafts;
 
     return {
       analysisRunId,
-      project: {
-        ...defaultProjectSettings,
-        ...parsedState.project,
-      },
-      drafts: parsedState.drafts?.length ? parsedState.drafts : defaultDrafts,
-      analysisResult: parsedState.analysisResult,
-      decisionLogs: (parsedState.decisionLogs ?? []).map((log) => ({
-        ...log,
-        analysisRunId: log.analysisRunId ?? analysisRunId,
-      })),
+      project,
+      drafts,
+      analysisResult: sanitizeAnalysisResult(parsedState.analysisResult, project, drafts),
+      decisionLogs: (Array.isArray(parsedState.decisionLogs) ? parsedState.decisionLogs : [])
+        .filter(isValidDecisionLog)
+        .map((log) => ({
+          ...log,
+          analysisRunId: log.analysisRunId ?? analysisRunId,
+        })),
     };
   } catch {
     return defaultWorkspaceState;
@@ -296,15 +339,20 @@ export function parseWorkspaceImport(rawText: string): WorkspaceImportResult {
     warnings.push('형식이 맞지 않는 Decision Log 일부를 제외했습니다.');
   }
 
+  const resolvedDrafts = drafts.length ? drafts : defaultDrafts;
+  const analysisResult = sanitizeAnalysisResult(workspace.analysisResult, project, resolvedDrafts);
+
+  if (workspace.analysisResult !== undefined && !analysisResult) {
+    warnings.push('분석 결과가 형식 검증에 실패해 제외했습니다. 다시 분석을 실행해 주세요.');
+  }
+
   return {
     valid: true,
     state: {
       analysisRunId,
       project,
-      drafts: drafts.length ? drafts : defaultDrafts,
-      analysisResult: isRecord(workspace.analysisResult)
-        ? workspace.analysisResult as PlanMergeAnalysisResult
-        : undefined,
+      drafts: resolvedDrafts,
+      analysisResult,
       decisionLogs: decisionLogs.map((log) => ({
         ...log,
         analysisRunId: log.analysisRunId ?? analysisRunId,
