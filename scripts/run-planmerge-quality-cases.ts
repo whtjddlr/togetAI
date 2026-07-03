@@ -129,20 +129,21 @@ const completeSectionDrafts = [
 const cases: QualityCase[] = [
   {
     id: 'baseline-default',
-    title: '기본 샘플은 유효하지만 섹션 누락 때문에 review여야 한다.',
+    title: '기본 샘플은 12개 섹션을 채우고 MVP 범위 충돌을 드러내야 한다.',
     payload: {
       project: sampleProjectSettings,
       drafts: sampleDrafts,
     },
     expect: {
       parse: 'valid',
-      level: 'review',
-      maxScore: 79,
-      minIdeas: 3,
-      minDecisionBlocks: 3,
-      minFinalSections: 3,
+      level: 'ready',
+      minScore: 80,
+      minIdeas: 13,
+      minDecisionBlocks: 12,
+      minFinalSections: 12,
       requireAllInputDraftsUsed: true,
-      requireMissingSections: true,
+      requireConflict: true,
+      requireNoMissingSections: true,
     },
   },
   {

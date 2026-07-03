@@ -62,42 +62,142 @@ export const defaultProjectSettings: ProjectSettings = {
 };
 
 export const sampleProjectSettings: ProjectSettings = {
-  title: 'AI 공동 기획서 병합 도구',
-  goal: '여러 사람이 각자 AI로 만든 기획서 초안을 하나의 문서로 병합한다.',
+  title: '회의록 기반 액션아이템 정리 SaaS',
+  goal: '회의록, 음성 요약, 메신저 대화에서 액션아이템을 추출해 담당자와 마감일 기준으로 정리하는 B2B SaaS 기획서를 만든다.',
   documentType: 'service_plan',
-  contextPack: 'MVP는 2주 안에 만들 수 있어야 한다. 초기에는 텍스트 붙여넣기 기반으로 한다.',
-  forbiddenDirection: '초기 MVP에 실시간 공동 편집, 외부 문서 연동, 팀 초대를 포함하지 않는다.',
-  outputStyle: '노션처럼 간결하고 읽기 쉬운 서비스 기획서 톤',
+  contextPack: 'MVP는 4주 안에 검증 가능해야 한다. 초기에는 회의록 텍스트 붙여넣기, 액션아이템 추출, 담당자/마감일 확인, 내보내기까지 포함한다.',
+  forbiddenDirection: '초기 MVP에 실시간 회의 녹음, 캘린더 양방향 동기화, Slack/Notion 연동까지 포함하지 않는다.',
+  outputStyle: 'B2B SaaS 의사결정 문서처럼 간결하고 검증 기준이 분명한 톤',
 };
 
 export const sampleDrafts: LocalDraftSubmission[] = [
   {
-    id: 'sample-draft-1',
-    authorName: '민수',
+    id: 'sample-draft-overview',
+    authorName: '서연',
     authorRole: 'PM',
     aiModel: 'ChatGPT',
-    taskTitle: '문제 정의',
-    rawText: '여러 사람이 AI로 기획서를 작성하면 중복, 충돌, 누락이 발생한다.',
+    taskTitle: '서비스 개요',
+    rawText: '서비스 개요: 회의록 기반 액션아이템 정리 SaaS는 회의 후 흩어지는 할 일, 담당자, 마감일을 한 화면에서 정리해 후속 실행률을 높이는 업무 도구다.',
     status: 'parsed',
     createdAtLabel: '샘플',
   },
   {
-    id: 'sample-draft-2',
+    id: 'sample-draft-problem',
+    authorName: '민수',
+    authorRole: 'PM',
+    aiModel: 'Claude',
+    taskTitle: '문제 정의',
+    rawText: '문제 정의: 회의가 끝난 뒤 결정사항과 액션아이템이 회의록, 메신저, 개인 메모에 흩어져 누락된다. 특히 담당자와 마감일이 불명확하면 다음 회의에서 같은 논의를 반복한다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-target',
+    authorName: '지현',
+    authorRole: 'Designer',
+    aiModel: 'Gemini',
+    taskTitle: '타깃 사용자',
+    rawText: '타깃 사용자: 주 5회 이상 회의를 진행하는 5~30인 규모 스타트업 팀의 PM, 팀 리드, 오퍼레이션 매니저를 초기 고객으로 둔다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-pain',
+    authorName: '도윤',
+    authorRole: 'Marketer',
+    aiModel: 'Other',
+    taskTitle: '사용자 Pain Point',
+    rawText: '사용자 Pain Point: 회의록을 다시 읽는 시간이 길고, 누가 무엇을 해야 하는지 확인하기 어렵다. 액션아이템을 별도 툴에 옮기는 반복 작업 때문에 실행 관리가 늦어진다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-solution',
+    authorName: '서연',
+    authorRole: 'PM',
+    aiModel: 'ChatGPT',
+    taskTitle: '솔루션',
+    rawText: '솔루션: 사용자가 회의록을 붙여넣으면 AI가 결정사항, 액션아이템, 담당자 후보, 마감일 후보를 추출하고 사용자가 확인한 뒤 공유 가능한 정리본으로 내보낸다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-features',
+    authorName: '현우',
+    authorRole: 'Developer',
+    aiModel: 'Cursor',
+    taskTitle: '핵심 기능',
+    rawText: '핵심 기능: 회의록 텍스트 붙여넣기, 액션아이템 자동 추출, 담당자/마감일 후보 표시, 사람 검토 체크, Markdown 내보내기, 추출 근거 문장 하이라이트가 필요하다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-mvp-selected',
+    authorName: '현우',
+    authorRole: 'Developer',
+    aiModel: 'Claude',
+    taskTitle: 'MVP 범위',
+    rawText: 'MVP 범위: 4주 안에는 텍스트 붙여넣기, 액션아이템 추출, 담당자/마감일 확인, 결과 내보내기까지만 포함한다. 인증, 결제, 외부 연동은 검증 이후로 미룬다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-mvp-conflict',
+    authorName: '나연',
+    authorRole: 'Sales',
+    aiModel: 'Gemini',
+    taskTitle: 'MVP 범위',
+    rawText: 'MVP 범위: 고객 데모 설득력을 위해 Slack 연동과 Notion 연동까지 포함해야 한다. 회의 후 바로 쓰는 제품처럼 보이려면 외부 문서 도구 연동까지 필요하다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-flow',
     authorName: '지현',
     authorRole: 'Designer',
     aiModel: 'Claude',
-    taskTitle: 'MVP 범위',
-    rawText: 'MVP는 텍스트 붙여넣기와 병합 리포트 생성에 집중한다.',
+    taskTitle: '사용자 플로우',
+    rawText: '사용자 플로우: 프로젝트 생성 후 회의록 붙여넣기, AI 추출 실행, 액션아이템 후보 검토, 담당자/마감일 수정, 승인, Markdown 또는 CSV 내보내기 순서로 진행한다.',
     status: 'parsed',
     createdAtLabel: '샘플',
   },
   {
-    id: 'sample-draft-3',
+    id: 'sample-draft-requirements',
     authorName: '현우',
     authorRole: 'Developer',
-    aiModel: 'Gemini',
+    aiModel: 'Cursor',
+    taskTitle: '요구사항',
+    rawText: '요구사항: 모든 액션아이템은 원문 근거 문장과 연결되어야 한다. 담당자와 마감일은 AI가 확정하지 않고 후보로 표시해야 하며, 사용자가 승인한 항목만 최종 결과에 포함해야 한다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-metrics',
+    authorName: '도윤',
+    authorRole: 'Marketer',
+    aiModel: 'ChatGPT',
+    taskTitle: '성공 지표',
+    rawText: '성공 지표: 회의록 정리 시간이 50% 이상 줄어드는지, 추출된 액션아이템 중 사용자가 승인한 비율이 70% 이상인지, 다음 회의 전 완료율이 개선되는지 측정한다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-risks',
+    authorName: '서연',
+    authorRole: 'PM',
+    aiModel: 'Claude',
     taskTitle: '리스크',
-    rawText: 'AI 판단에는 출처 추적과 충돌 표시가 반드시 필요하다.',
+    rawText: '리스크: AI가 회의록에 없는 담당자나 마감일을 확정하면 신뢰가 깨진다. 따라서 출처 문장 연결, 후보 표시, 사용자 승인 로그가 반드시 필요하다.',
+    status: 'parsed',
+    createdAtLabel: '샘플',
+  },
+  {
+    id: 'sample-draft-open',
+    authorName: '나연',
+    authorRole: 'Sales',
+    aiModel: 'Other',
+    taskTitle: '미결정 사항',
+    rawText: '미결정 사항: 초기 고객을 PM 조직으로 좁힐지, 세일즈/CS 팀까지 포함할지 논의가 필요하다. CSV 내보내기를 MVP에 넣을지도 고객 인터뷰 후 결정해야 한다.',
     status: 'parsed',
     createdAtLabel: '샘플',
   },
@@ -123,6 +223,16 @@ export function createSampleWorkspaceState(): LocalWorkspaceState {
     }),
     decisionLogs: [],
   };
+}
+
+export function isSampleWorkspaceState(state: LocalWorkspaceState) {
+  const sampleDraftIds = new Set(sampleDrafts.map((draft) => draft.id));
+
+  return (
+    state.project.title === sampleProjectSettings.title &&
+    state.drafts.length === sampleDrafts.length &&
+    state.drafts.every((draft) => sampleDraftIds.has(draft.id))
+  );
 }
 
 type WorkspaceExportFile = {

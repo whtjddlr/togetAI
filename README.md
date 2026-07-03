@@ -9,6 +9,7 @@
 - **배포 링크**: [https://planmerge-ai.vercel.app](https://planmerge-ai.vercel.app)
 - **GitHub**: [whtjddlr/togetAI](https://github.com/whtjddlr/togetAI)
 - **현재 배포 상태**: 빈 프로젝트 시작, GMS 기반 AI 분석, Neon 기반 공유 워크스페이스/익명 투표/의견 집계 연결
+- **검증 샘플**: 회의록 기반 액션아이템 SaaS 예시, 13개 초안 · 12개 섹션 · MVP 범위 충돌 1개를 하네스에서 검증
 
 ## Screenshots
 

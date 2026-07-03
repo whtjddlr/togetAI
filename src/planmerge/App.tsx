@@ -15,6 +15,7 @@ import {
   createDraftSubmission,
   createSampleWorkspaceState,
   defaultWorkspaceState,
+  isSampleWorkspaceState,
   loadWorkspaceState,
   parseWorkspaceImport,
   saveWorkspaceState,
@@ -51,6 +52,7 @@ export default function App() {
   const selectedSection = mergeSections.find((section) => section.number === activeSection) ?? mergeSections[0];
   const displayedIdeaCount = workspaceState.analysisResult?.normalizedIdeas.length
     ?? mergeSections.filter((section) => section.content.trim()).length;
+  const sampleWorkspace = isSampleWorkspaceState(workspaceState);
 
   useEffect(() => {
     let cancelled = false;
@@ -488,7 +490,7 @@ export default function App() {
             팀 공유 워크스페이스입니다. 투표와 익명 의견이 참여자 전체 기준으로 집계됩니다. 문서 편집은 이 브라우저에만 유지됩니다.
           </div>
         )}
-        {activeView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && (
+        {activeView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && !sampleWorkspace && (
           <div className="border-b border-amber-100 bg-amber-50 px-8 py-2 text-sm text-amber-800">
             로컬 하네스 결과입니다. 실제 모델 호출 전 구조 검증과 화면 연결 확인에 사용합니다.
           </div>
