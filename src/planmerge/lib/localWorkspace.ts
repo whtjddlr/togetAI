@@ -268,7 +268,12 @@ export function saveWorkspaceState(state: LocalWorkspaceState) {
     return;
   }
 
-  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(state));
+  try {
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    // 대용량 초안으로 QuotaExceededError가 나도 앱은 계속 동작해야 한다.
+    console.warn('워크스페이스 저장에 실패했습니다:', error);
+  }
 }
 
 export function createWorkspaceExport(state: LocalWorkspaceState) {

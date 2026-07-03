@@ -8,6 +8,8 @@ export type DocumentSectionData = {
   content: string;
   status: SectionStatus;
   decisionTrace?: DecisionTrace;
+  // 한 섹션에 Decision Block이 여러 개일 때 전체 목록. decisionTrace는 대표(첫 번째) 블록.
+  decisionTraces?: DecisionTrace[];
 };
 
 export type DecisionSource = {

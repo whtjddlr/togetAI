@@ -368,7 +368,13 @@ export function DecisionPanel({
   sharedWorkspaceId,
   onApplyDecisionOption,
 }: DecisionPanelProps) {
-  const trace = getDecisionTrace(selectedSection);
+  const traces = selectedSection.decisionTraces?.length
+    ? selectedSection.decisionTraces
+    : [getDecisionTrace(selectedSection)];
+  const [activeBlockIdBySection, setActiveBlockIdBySection] = useState<Record<number, string>>({});
+  const trace = traces.find(
+    (candidate) => candidate.decisionBlockId === activeBlockIdBySection[selectedSection.number],
+  ) ?? traces[0];
   const [anonymousClientId] = useState(() => getAnonymousClientId());
   const [participationState, setParticipationState] = useState<ParticipationState>(() =>
     loadParticipationState(analysisRunId),
@@ -575,6 +581,28 @@ export function DecisionPanel({
         <div className="mt-1 text-xs text-gray-500">
           현재 선택: {trace.sectionNumber}. {trace.sectionTitle}
         </div>
+        {traces.length > 1 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {traces.map((candidate, index) => (
+              <button
+                key={candidate.decisionBlockId}
+                type="button"
+                aria-pressed={candidate.decisionBlockId === trace.decisionBlockId}
+                className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                  candidate.decisionBlockId === trace.decisionBlockId
+                    ? 'border-blue-300 bg-blue-50 text-blue-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+                onClick={() => setActiveBlockIdBySection((current) => ({
+                  ...current,
+                  [selectedSection.number]: candidate.decisionBlockId,
+                }))}
+              >
+                결정 {index + 1} · {candidate.topic}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="p-6 space-y-6">
@@ -622,8 +650,11 @@ export function DecisionPanel({
           <div className="text-xs text-gray-500 mb-3">다른 의견</div>
           {trace.alternatives.length > 0 ? (
             <div className="space-y-3">
-              {trace.alternatives.map((alternative) => (
-                <div key={alternative.title} className="pb-3 border-b border-gray-100 last:border-0 last:pb-0">
+              {trace.alternatives.map((alternative, index) => (
+                <div
+                  key={alternative.optionId ?? `${alternative.title}-${index}`}
+                  className="pb-3 border-b border-gray-100 last:border-0 last:pb-0"
+                >
                   <div className="text-sm text-gray-900 mb-1">{alternative.title}</div>
                   <div className="text-xs text-gray-600 mb-2">{alternative.description}</div>
                   <SourceChips opinion={alternative} />
@@ -644,8 +675,11 @@ export function DecisionPanel({
           <div className="text-xs text-gray-500 mb-3">충돌 의견</div>
           {trace.conflicts.length > 0 ? (
             <div className="space-y-3">
-              {trace.conflicts.map((conflict) => (
-                <div key={conflict.title} className="pb-3 border-b border-gray-100 last:border-0 last:pb-0">
+              {trace.conflicts.map((conflict, index) => (
+                <div
+                  key={conflict.optionId ?? `${conflict.title}-${index}`}
+                  className="pb-3 border-b border-gray-100 last:border-0 last:pb-0"
+                >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="text-sm text-gray-900">{conflict.title}</div>
                     {conflict.severity && (
