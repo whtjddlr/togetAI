@@ -6,6 +6,7 @@ type ToolbarProps = {
   approvalStatus: 'pending' | 'approved';
   analysisStatus: 'idle' | 'analyzing' | 'completed';
   draftCount: number;
+  hasMergeResult: boolean;
   normalizedIdeaCount: number;
   onApprove: () => void;
   onExportMarkdown: () => void;
@@ -51,6 +52,7 @@ export function Toolbar({
   approvalStatus,
   analysisStatus,
   draftCount,
+  hasMergeResult,
   normalizedIdeaCount,
   onApprove,
   onExportMarkdown,
@@ -93,10 +95,10 @@ export function Toolbar({
   const copy = {
     ...viewCopy[activeView],
     breadcrumb: activeView === 'merge'
-      ? `프로젝트 / ${projectTitle}`
+      ? `프로젝트 / ${projectTitle.trim() || '새 프로젝트'}`
       : viewCopy[activeView].breadcrumb,
     subtitle: activeView === 'merge'
-      ? `${draftCount}개 초안에서 ${normalizedIdeaCount}개 아이디어를 추출했습니다`
+      ? getMergeSubtitle(draftCount, normalizedIdeaCount, hasMergeResult)
       : activeView === 'inspector'
         ? `${draftCount}개의 초안을 기준으로 분석 구조를 검사합니다`
       : viewCopy[activeView].subtitle,
@@ -125,7 +127,7 @@ export function Toolbar({
           >
             •••
           </button>
-          {activeView === 'merge' && (
+          {activeView === 'merge' && hasMergeResult && (
             <button
               type="button"
               className={`px-4 py-1.5 rounded-md text-sm text-white transition-colors ${
@@ -192,4 +194,16 @@ export function Toolbar({
       </div>
     </div>
   );
+}
+
+function getMergeSubtitle(draftCount: number, normalizedIdeaCount: number, hasMergeResult: boolean) {
+  if (!draftCount) {
+    return '프로젝트 설정 후 AI 초안을 입력하면 병합 결과가 생성됩니다';
+  }
+
+  if (!hasMergeResult) {
+    return `${draftCount}개 초안이 준비되었습니다. 병합 분석을 실행해 주세요`;
+  }
+
+  return `${draftCount}개 초안에서 ${normalizedIdeaCount}개 아이디어를 추출했습니다`;
 }

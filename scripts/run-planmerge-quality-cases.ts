@@ -6,8 +6,8 @@ import {
   type PlanMergeAnalysisPayload,
 } from '../src/planmerge/lib/ai/planmergeProtocol';
 import {
-  defaultProjectSettings,
-  defaultWorkspaceState,
+  sampleDrafts,
+  sampleProjectSettings,
   type LocalDraftSubmission,
   type ProjectSettings,
 } from '../src/planmerge/lib/localWorkspace';
@@ -41,9 +41,9 @@ type CaseSummary = {
 };
 
 const project: ProjectSettings = {
-  ...defaultProjectSettings,
+  ...sampleProjectSettings,
   contextPack: [
-    defaultProjectSettings.contextPack,
+    sampleProjectSettings.contextPack,
     '선택 기준: 빠른 검증, 출처 추적, 낮은 구현 복잡도, 섹션별 비교 가능성을 우선한다.',
   ].join(' '),
 };
@@ -131,8 +131,8 @@ const cases: QualityCase[] = [
     id: 'baseline-default',
     title: '기본 샘플은 유효하지만 섹션 누락 때문에 review여야 한다.',
     payload: {
-      project: defaultWorkspaceState.project,
-      drafts: defaultWorkspaceState.drafts,
+      project: sampleProjectSettings,
+      drafts: sampleDrafts,
     },
     expect: {
       parse: 'valid',

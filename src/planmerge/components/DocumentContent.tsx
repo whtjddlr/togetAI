@@ -59,7 +59,7 @@ export function DocumentContent({
     <div ref={scrollContainerRef} className="flex-1 min-w-0 bg-white xl:h-full xl:min-h-0 xl:overflow-y-auto">
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-8 sm:py-8">
         <div className="mb-8">
-          <h1 className="text-2xl text-gray-900 mb-4">{project.title} 기획서</h1>
+          <h1 className="text-2xl text-gray-900 mb-4">{project.title.trim() || '새 프로젝트'} 기획서</h1>
           <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 sm:gap-4">
             <div className="flex items-center gap-2">
               <span className="text-gray-500">문서 타입:</span>

@@ -8,15 +8,23 @@
 
 - **배포 링크**: [https://planmerge-ai.vercel.app](https://planmerge-ai.vercel.app)
 - **GitHub**: [whtjddlr/togetAI](https://github.com/whtjddlr/togetAI)
-- **현재 배포 상태**: GMS 기반 AI 분석, Neon 기반 공유 워크스페이스/익명 투표/의견 집계 연결
+- **현재 배포 상태**: 빈 프로젝트 시작, GMS 기반 AI 분석, Neon 기반 공유 워크스페이스/익명 투표/의견 집계 연결
 
 ## Screenshots
 
-### Merge Result
+### 1. Project Setup
+
+![프로젝트 설정 화면 — 빈 프로젝트에서 목표, 기준, 제외 방향을 먼저 입력](docs/images/project-setup.png)
+
+### 2. Draft Submit
+
+![초안 입력 화면 — AI 초안 원문을 붙여넣고 제출된 초안 목록을 관리](docs/images/draft-submit.png)
+
+### 3. Merge Result
 
 ![병합 결과 화면 — 섹션별 문서와 Decision Panel(선택 근거, 충돌 배지, 익명 투표)](docs/images/merge-view.png)
 
-### Review Queue
+### 4. Review Queue
 
 ![Review Queue — 내보내기 전 충돌·검토·입력 부족 섹션을 우선순위로 정리](docs/images/review-queue.png)
 

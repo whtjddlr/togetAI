@@ -44,8 +44,8 @@ export function Sidebar({ activeView, analysisStatus, onViewChange }: SidebarPro
         </ul>
 
         <div className="justify-self-start px-1 md:mt-6 md:px-3">
-          <StatusBadge variant={analysisStatus === 'analyzing' ? 'warning' : 'success'}>
-            {analysisStatus === 'analyzing' ? '분석 중' : '분석 완료'}
+          <StatusBadge variant={getAnalysisStatusVariant(analysisStatus)}>
+            {getAnalysisStatusLabel(analysisStatus)}
           </StatusBadge>
         </div>
       </nav>
@@ -55,4 +55,16 @@ export function Sidebar({ activeView, analysisStatus, onViewChange }: SidebarPro
       </div>
     </div>
   );
+}
+
+function getAnalysisStatusLabel(status: SidebarProps['analysisStatus']) {
+  if (status === 'analyzing') return '분석 중';
+  if (status === 'completed') return '분석 완료';
+  return '분석 대기';
+}
+
+function getAnalysisStatusVariant(status: SidebarProps['analysisStatus']) {
+  if (status === 'analyzing') return 'warning';
+  if (status === 'completed') return 'success';
+  return 'default';
 }

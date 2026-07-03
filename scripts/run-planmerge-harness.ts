@@ -3,11 +3,11 @@ import {
   runLocalPlanMergeHarness,
   validatePlanMergeAnalysis,
 } from '../src/planmerge/lib/ai/planmergeProtocol';
-import { defaultWorkspaceState } from '../src/planmerge/lib/localWorkspace';
+import { sampleDrafts, sampleProjectSettings } from '../src/planmerge/lib/localWorkspace';
 
 const payload = {
-  project: defaultWorkspaceState.project,
-  drafts: defaultWorkspaceState.drafts,
+  project: sampleProjectSettings,
+  drafts: sampleDrafts,
 };
 
 const result = runLocalPlanMergeHarness(payload);

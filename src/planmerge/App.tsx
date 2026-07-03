@@ -13,6 +13,7 @@ import type { AppView } from './types/navigation';
 import {
   createWorkspaceExport,
   createDraftSubmission,
+  createSampleWorkspaceState,
   defaultWorkspaceState,
   loadWorkspaceState,
   parseWorkspaceImport,
@@ -32,10 +33,10 @@ import {
 type AnalysisStatus = 'idle' | 'analyzing' | 'completed';
 
 export default function App() {
-  const [activeView, setActiveView] = useState<AppView>('merge');
+  const [activeView, setActiveView] = useState<AppView>('setup');
   const [activeSection, setActiveSection] = useState(7);
   const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved'>('pending');
-  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('completed');
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
   const [workspaceState, setWorkspaceState] = useState(defaultWorkspaceState);
   const [hasLoadedWorkspace, setHasLoadedWorkspace] = useState(false);
   const [sharedWorkspaceId, setSharedWorkspaceId] = useState<string | null>(null);
@@ -53,10 +54,15 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const wsId = new URLSearchParams(window.location.search).get('ws');
+    const searchParams = new URLSearchParams(window.location.search);
+    const wsId = searchParams.get('ws');
+    const freshStart = searchParams.get('fresh') === '1';
 
     const loadLocal = () => {
-      setWorkspaceState(loadWorkspaceState());
+      const nextWorkspaceState = freshStart ? defaultWorkspaceState : loadWorkspaceState();
+
+      setWorkspaceState(nextWorkspaceState);
+      setAnalysisStatus(nextWorkspaceState.analysisResult ? 'completed' : 'idle');
       setHasLoadedWorkspace(true);
     };
 
@@ -79,6 +85,7 @@ export default function App() {
         setSharedWorkspaceId(wsId);
         setSharedWorkspaceLink(null);
         setWorkspaceState(shared);
+        setAnalysisStatus(shared.analysisResult ? 'completed' : 'idle');
         setHasLoadedWorkspace(true);
       } else {
         setNotice('공유 워크스페이스를 불러오지 못해 로컬 데이터를 표시합니다.');
@@ -146,7 +153,21 @@ export default function App() {
       ...current,
       project,
     }));
+    setActiveView('drafts');
     showNotice('프로젝트 설정을 저장했습니다.');
+  };
+
+  const loadSampleWorkspace = () => {
+    const sampleWorkspace = createSampleWorkspaceState();
+
+    setWorkspaceState(sampleWorkspace);
+    setSharedWorkspaceLink(null);
+    setSharedWorkspaceId(null);
+    setApprovalStatus('pending');
+    setAnalysisStatus(sampleWorkspace.analysisResult ? 'completed' : 'idle');
+    setActiveSection(7);
+    setActiveView('merge');
+    showNotice('샘플 워크스페이스를 불러왔습니다.');
   };
 
   const submitDraft = (draft: DraftFormInput) => {
@@ -172,6 +193,12 @@ export default function App() {
 
   const reanalyze = async () => {
     if (analysisStatus === 'analyzing') {
+      return;
+    }
+
+    if (!workspaceState.drafts.length) {
+      setActiveView('drafts');
+      showNotice('분석하려면 AI 초안을 하나 이상 입력해 주세요.');
       return;
     }
 
@@ -281,7 +308,7 @@ export default function App() {
     setWorkspaceState(result.state);
     setSharedWorkspaceLink(null);
     setApprovalStatus('pending');
-    setAnalysisStatus('completed');
+    setAnalysisStatus(result.state.analysisResult ? 'completed' : 'idle');
     setActiveView('merge');
     setActiveSection(7);
     showNotice(
@@ -338,6 +365,7 @@ export default function App() {
         <ProjectSetupPage
           key={createProjectSettingsKey(workspaceState.project)}
           project={workspaceState.project}
+          onLoadSample={loadSampleWorkspace}
           onSave={saveProject}
         />
       );
@@ -346,8 +374,10 @@ export default function App() {
     if (activeView === 'drafts') {
       return (
         <DraftSubmitPage
+          analysisStatus={analysisStatus}
           drafts={workspaceState.drafts}
           onDeleteDraft={deleteDraft}
+          onRunAnalysis={reanalyze}
           onSubmitDraft={submitDraft}
         />
       );
@@ -377,6 +407,16 @@ export default function App() {
 
     if (analysisStatus === 'analyzing') {
       return <AnalysisLoadingView draftCount={workspaceState.drafts.length} />;
+    }
+
+    if (!workspaceState.analysisResult) {
+      return (
+        <MergePreparationView
+          draftCount={workspaceState.drafts.length}
+          onAddDraft={() => setActiveView('drafts')}
+          onRunAnalysis={reanalyze}
+        />
+      );
     }
 
     return (
@@ -412,6 +452,7 @@ export default function App() {
           approvalStatus={approvalStatus}
           analysisStatus={analysisStatus}
           draftCount={workspaceState.drafts.length}
+          hasMergeResult={Boolean(workspaceState.analysisResult)}
           normalizedIdeaCount={displayedIdeaCount}
           onApprove={approveDecision}
           onExportMarkdown={exportMarkdown}
@@ -457,6 +498,64 @@ export default function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+function MergePreparationView({
+  draftCount,
+  onAddDraft,
+  onRunAnalysis,
+}: {
+  draftCount: number;
+  onAddDraft: () => void;
+  onRunAnalysis: () => void;
+}) {
+  const hasDrafts = draftCount > 0;
+
+  return (
+    <main className="flex min-h-0 flex-1 items-center justify-center bg-white px-4 py-10">
+      <div className="w-full max-w-2xl rounded-md border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+        <div className="text-xs text-gray-500">Merge Result</div>
+        <h2 className="mt-2 text-2xl text-gray-900">아직 병합 결과가 없습니다.</h2>
+        <p className="mt-3 text-sm leading-relaxed text-gray-600">
+          프로젝트 기준을 저장하고 AI 초안을 붙여넣은 뒤 분석을 실행하면, 최종 기획서와 섹션별 선택 근거가 생성됩니다.
+        </p>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-md border border-gray-200 p-4">
+            <div className="text-sm text-gray-900">1. 프로젝트 설정</div>
+            <p className="mt-2 text-xs leading-relaxed text-gray-500">목표, 공통 기준, 제외 범위를 먼저 고정합니다.</p>
+          </div>
+          <div className="rounded-md border border-gray-200 p-4">
+            <div className="text-sm text-gray-900">2. 초안 입력</div>
+            <p className="mt-2 text-xs leading-relaxed text-gray-500">팀원이 AI로 만든 초안을 여러 개 붙여넣습니다.</p>
+          </div>
+          <div className="rounded-md border border-gray-200 p-4">
+            <div className="text-sm text-gray-900">3. 병합 분석</div>
+            <p className="mt-2 text-xs leading-relaxed text-gray-500">선택안, 대안, 충돌 의견을 Decision Block으로 정리합니다.</p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
+            onClick={hasDrafts ? onRunAnalysis : onAddDraft}
+          >
+            {hasDrafts ? `${draftCount}개 초안으로 분석 실행` : '초안 입력하기'}
+          </button>
+          {hasDrafts && (
+            <button
+              type="button"
+              className="rounded-md border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+              onClick={onAddDraft}
+            >
+              초안 더 추가
+            </button>
+          )}
+        </div>
+      </div>
+    </main>
   );
 }
 

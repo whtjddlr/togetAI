@@ -3,8 +3,10 @@ import { StatusBadge } from '../StatusBadge';
 import type { DraftFormInput, LocalDraftSubmission } from '../../lib/localWorkspace';
 
 type DraftSubmitPageProps = {
+  analysisStatus: 'idle' | 'analyzing' | 'completed';
   drafts: LocalDraftSubmission[];
   onDeleteDraft: (draftId: string) => void;
+  onRunAnalysis: () => void;
   onSubmitDraft: (draft: DraftFormInput) => void;
 };
 
@@ -16,8 +18,15 @@ const initialForm: DraftFormInput = {
   rawText: '',
 };
 
-export function DraftSubmitPage({ drafts, onDeleteDraft, onSubmitDraft }: DraftSubmitPageProps) {
+export function DraftSubmitPage({
+  analysisStatus,
+  drafts,
+  onDeleteDraft,
+  onRunAnalysis,
+  onSubmitDraft,
+}: DraftSubmitPageProps) {
   const [form, setForm] = useState<DraftFormInput>(initialForm);
+  const canAnalyze = drafts.length > 0 && analysisStatus !== 'analyzing';
 
   const updateForm = (field: keyof DraftFormInput, value: string) => {
     setForm((current) => ({
@@ -122,33 +131,55 @@ export function DraftSubmitPage({ drafts, onDeleteDraft, onSubmitDraft }: DraftS
         </section>
 
         <aside>
-          <div className="mb-3 text-sm text-gray-900">제출된 초안</div>
-          <div className="space-y-3">
-            {drafts.map((draft) => (
-              <div key={draft.id} className="rounded-md border border-gray-200 p-3">
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-gray-900">{draft.taskTitle}</div>
-                    <div className="mt-1 text-xs text-gray-600">
-                      {draft.authorName} / {draft.aiModel}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`${draft.taskTitle} 초안 삭제`}
-                    className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600"
-                    onClick={() => onDeleteDraft(draft.id)}
-                  >
-                    삭제
-                  </button>
-                </div>
-                <StatusBadge variant={draft.status === 'parsed' ? 'success' : 'default'}>
-                  {draft.status === 'parsed' ? '분석 완료' : '제출됨'}
-                </StatusBadge>
-                <div className="mt-2 text-xs text-gray-400">{draft.createdAtLabel}</div>
-              </div>
-            ))}
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="text-sm text-gray-900">제출된 초안</div>
+            <div className="text-xs text-gray-500">{drafts.length}개</div>
           </div>
+          <div className="space-y-3">
+            {drafts.length > 0 ? (
+              drafts.map((draft) => (
+                <div key={draft.id} className="rounded-md border border-gray-200 p-3">
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-gray-900">{draft.taskTitle}</div>
+                      <div className="mt-1 text-xs text-gray-600">
+                        {draft.authorName} / {draft.aiModel}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`${draft.taskTitle} 초안 삭제`}
+                      className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600"
+                      onClick={() => onDeleteDraft(draft.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                  <StatusBadge variant={draft.status === 'parsed' ? 'success' : 'default'}>
+                    {draft.status === 'parsed' ? '분석 완료' : '제출됨'}
+                  </StatusBadge>
+                  <div className="mt-2 text-xs text-gray-400">{draft.createdAtLabel}</div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-md border border-dashed border-gray-200 p-4 text-sm leading-relaxed text-gray-500">
+                아직 제출된 초안이 없습니다. 왼쪽 입력 영역에 AI가 작성한 기획서 초안을 붙여넣어 주세요.
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className={`mt-4 w-full rounded-md px-4 py-2 text-sm transition-colors ${
+              canAnalyze
+                ? 'bg-gray-900 text-white hover:bg-gray-800'
+                : 'cursor-not-allowed bg-gray-100 text-gray-400'
+            }`}
+            disabled={!canAnalyze}
+            onClick={onRunAnalysis}
+          >
+            {analysisStatus === 'analyzing' ? '분석 중' : '병합 분석 실행'}
+          </button>
         </aside>
       </div>
     </main>

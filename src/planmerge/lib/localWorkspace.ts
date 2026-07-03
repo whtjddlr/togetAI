@@ -1,4 +1,4 @@
-import { validatePlanMergeAnalysis } from './ai/planmergeProtocol';
+import { runLocalPlanMergeHarness, validatePlanMergeAnalysis } from './ai/planmergeProtocol';
 import type { PlanMergeAnalysisResult } from './ai/planmergeProtocol';
 
 export type ProjectSettings = {
@@ -53,6 +53,15 @@ const WORKSPACE_STORAGE_KEY = 'planmerge_workspace_v1';
 const WORKSPACE_EXPORT_SCHEMA_VERSION = 'planmerge.workspace.v1';
 
 export const defaultProjectSettings: ProjectSettings = {
+  title: '',
+  goal: '',
+  documentType: 'service_plan',
+  contextPack: '',
+  forbiddenDirection: '',
+  outputStyle: '',
+};
+
+export const sampleProjectSettings: ProjectSettings = {
   title: 'AI 공동 기획서 병합 도구',
   goal: '여러 사람이 각자 AI로 만든 기획서 초안을 하나의 문서로 병합한다.',
   documentType: 'service_plan',
@@ -61,7 +70,7 @@ export const defaultProjectSettings: ProjectSettings = {
   outputStyle: '노션처럼 간결하고 읽기 쉬운 서비스 기획서 톤',
 };
 
-export const defaultDrafts: LocalDraftSubmission[] = [
+export const sampleDrafts: LocalDraftSubmission[] = [
   {
     id: 'sample-draft-1',
     authorName: '민수',
@@ -97,9 +106,24 @@ export const defaultDrafts: LocalDraftSubmission[] = [
 export const defaultWorkspaceState: LocalWorkspaceState = {
   analysisRunId: 0,
   project: defaultProjectSettings,
-  drafts: defaultDrafts,
+  drafts: [],
   decisionLogs: [],
 };
+
+export function createSampleWorkspaceState(): LocalWorkspaceState {
+  const drafts = sampleDrafts.map((draft) => ({ ...draft }));
+
+  return {
+    analysisRunId: 1,
+    project: sampleProjectSettings,
+    drafts,
+    analysisResult: runLocalPlanMergeHarness({
+      project: sampleProjectSettings,
+      drafts,
+    }),
+    decisionLogs: [],
+  };
+}
 
 type WorkspaceExportFile = {
   schemaVersion: typeof WORKSPACE_EXPORT_SCHEMA_VERSION;
@@ -244,13 +268,12 @@ export function loadWorkspaceState(): LocalWorkspaceState {
     const storedDrafts = Array.isArray(parsedState.drafts)
       ? parsedState.drafts.filter(isValidDraft)
       : [];
-    const drafts = storedDrafts.length ? storedDrafts : defaultDrafts;
 
     return {
       analysisRunId,
       project,
-      drafts,
-      analysisResult: sanitizeAnalysisResult(parsedState.analysisResult, project, drafts),
+      drafts: storedDrafts,
+      analysisResult: sanitizeAnalysisResult(parsedState.analysisResult, project, storedDrafts),
       decisionLogs: (Array.isArray(parsedState.decisionLogs) ? parsedState.decisionLogs : [])
         .filter(isValidDecisionLog)
         .map((log) => ({
@@ -335,7 +358,7 @@ export function parseWorkspaceImport(rawText: string): WorkspaceImportResult {
   }
 
   if (!Array.isArray(workspace.drafts)) {
-    warnings.push('초안 목록이 없어 샘플 초안으로 대체했습니다.');
+    warnings.push('초안 목록이 없어 빈 초안 목록으로 대체했습니다.');
   } else if (drafts.length !== workspace.drafts.length) {
     warnings.push('형식이 맞지 않는 초안 일부를 제외했습니다.');
   }
@@ -344,8 +367,7 @@ export function parseWorkspaceImport(rawText: string): WorkspaceImportResult {
     warnings.push('형식이 맞지 않는 Decision Log 일부를 제외했습니다.');
   }
 
-  const resolvedDrafts = drafts.length ? drafts : defaultDrafts;
-  const analysisResult = sanitizeAnalysisResult(workspace.analysisResult, project, resolvedDrafts);
+  const analysisResult = sanitizeAnalysisResult(workspace.analysisResult, project, drafts);
 
   if (workspace.analysisResult !== undefined && !analysisResult) {
     warnings.push('분석 결과가 형식 검증에 실패해 제외했습니다. 다시 분석을 실행해 주세요.');
@@ -356,7 +378,7 @@ export function parseWorkspaceImport(rawText: string): WorkspaceImportResult {
     state: {
       analysisRunId,
       project,
-      drafts: resolvedDrafts,
+      drafts,
       analysisResult,
       decisionLogs: decisionLogs.map((log) => ({
         ...log,

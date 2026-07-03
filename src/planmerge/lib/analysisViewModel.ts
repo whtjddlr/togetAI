@@ -1,5 +1,4 @@
 import type { DecisionSource, DecisionTrace, DocumentSectionData, SectionStatus } from '../data/mergeResult';
-import { sections as defaultSections } from '../data/mergeResult';
 import type { LocalDraftSubmission } from './localWorkspace';
 import {
   documentSectionDefinitions,
@@ -14,7 +13,7 @@ export function createDocumentSectionsFromAnalysis(
   drafts: LocalDraftSubmission[] = [],
 ): DocumentSectionData[] {
   if (!analysisResult) {
-    return defaultSections;
+    return createEmptyDocumentSections();
   }
 
   const finalSectionsByKey = new Map(
@@ -52,6 +51,16 @@ export function createDocumentSectionsFromAnalysis(
       decisionTraces: decisionTraces.length ? decisionTraces : undefined,
     };
   });
+}
+
+function createEmptyDocumentSections(): DocumentSectionData[] {
+  return documentSectionDefinitions.map((definition) => ({
+    number: definition.sortOrder,
+    sectionKey: definition.key,
+    title: definition.title,
+    content: '',
+    status: 'pending',
+  }));
 }
 
 function getSectionStatus(sectionKey: DocumentSectionKey, analysisResult: PlanMergeAnalysisResult): SectionStatus {
