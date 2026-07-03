@@ -39,6 +39,7 @@ export default function App() {
   const [workspaceState, setWorkspaceState] = useState(defaultWorkspaceState);
   const [hasLoadedWorkspace, setHasLoadedWorkspace] = useState(false);
   const [sharedWorkspaceId, setSharedWorkspaceId] = useState<string | null>(null);
+  const [sharedWorkspaceLink, setSharedWorkspaceLink] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimeoutRef = useRef<number | null>(null);
   const workspaceImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -47,6 +48,8 @@ export default function App() {
     [workspaceState.analysisResult, workspaceState.drafts],
   );
   const selectedSection = mergeSections.find((section) => section.number === activeSection) ?? mergeSections[0];
+  const displayedIdeaCount = workspaceState.analysisResult?.normalizedIdeas.length
+    ?? mergeSections.filter((section) => section.content.trim()).length;
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +77,7 @@ export default function App() {
 
       if (shared) {
         setSharedWorkspaceId(wsId);
+        setSharedWorkspaceLink(null);
         setWorkspaceState(shared);
         setHasLoadedWorkspace(true);
       } else {
@@ -112,6 +116,15 @@ export default function App() {
     noticeTimeoutRef.current = window.setTimeout(() => {
       setNotice(null);
     }, 2400);
+  };
+
+  const copyShareLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showNotice('공유 링크를 클립보드에 복사했습니다.');
+    } catch {
+      showNotice('클립보드 권한이 없어 링크를 직접 복사해 주세요.');
+    }
   };
 
   const selectSectionFromAnyView = (sectionNumber: number) => {
@@ -231,14 +244,10 @@ export default function App() {
   const shareWorkspace = async () => {
     try {
       const { id } = await createSharedWorkspace(createWorkspaceExport(workspaceState));
-      const shareUrl = `${window.location.origin}${window.location.pathname}?ws=${id}`;
+      const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${id}`;
 
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        showNotice('팀 공유 링크를 클립보드에 복사했습니다. 링크를 연 사람의 투표와 의견이 함께 집계됩니다.');
-      } catch {
-        window.prompt('아래 공유 링크를 복사하세요.', shareUrl);
-      }
+      setSharedWorkspaceLink(nextShareUrl);
+      await copyShareLink(nextShareUrl);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : '공유 링크 생성에 실패했습니다.');
     }
@@ -270,6 +279,7 @@ export default function App() {
     }
 
     setWorkspaceState(result.state);
+    setSharedWorkspaceLink(null);
     setApprovalStatus('pending');
     setAnalysisStatus('completed');
     setActiveView('merge');
@@ -402,7 +412,7 @@ export default function App() {
           approvalStatus={approvalStatus}
           analysisStatus={analysisStatus}
           draftCount={workspaceState.drafts.length}
-          normalizedIdeaCount={workspaceState.analysisResult?.normalizedIdeas.length ?? 0}
+          normalizedIdeaCount={displayedIdeaCount}
           onApprove={approveDecision}
           onExportMarkdown={exportMarkdown}
           onExportWorkspace={exportWorkspace}
@@ -425,6 +435,13 @@ export default function App() {
             {notice}
           </div>
         )}
+        {sharedWorkspaceLink && (
+          <ShareWorkspaceBanner
+            shareUrl={sharedWorkspaceLink}
+            onCopy={() => copyShareLink(sharedWorkspaceLink)}
+            onDismiss={() => setSharedWorkspaceLink(null)}
+          />
+        )}
         {sharedWorkspaceId && (
           <div className="border-b border-blue-100 bg-blue-50 px-8 py-2 text-sm text-blue-800">
             팀 공유 워크스페이스입니다. 투표와 익명 의견이 참여자 전체 기준으로 집계됩니다. 문서 편집은 이 브라우저에만 유지됩니다.
@@ -437,6 +454,53 @@ export default function App() {
         )}
         <div className="flex flex-1 min-h-0 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
           {renderContent()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ShareWorkspaceBanner({
+  shareUrl,
+  onCopy,
+  onDismiss,
+}: {
+  shareUrl: string;
+  onCopy: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="border-b border-blue-100 bg-blue-50 px-4 py-3 sm:px-8">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-sm text-blue-950">팀 공유 링크가 생성되었습니다.</div>
+          <p className="mt-1 text-xs leading-relaxed text-blue-700">
+            현재 워크스페이스의 스냅샷 링크입니다. 이후 수정한 내용까지 공유하려면 새 링크를 다시 만들어야 합니다.
+          </p>
+        </div>
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            readOnly
+            value={shareUrl}
+            aria-label="팀 공유 링크"
+            className="h-9 min-w-0 rounded-md border border-blue-200 bg-white px-3 text-xs text-blue-950 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 sm:w-96"
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <button
+            type="button"
+            className="h-9 rounded-md bg-blue-600 px-3 text-sm text-white transition-colors hover:bg-blue-700"
+            onClick={onCopy}
+          >
+            복사
+          </button>
+          <button
+            type="button"
+            className="h-9 rounded-md px-3 text-sm text-blue-700 transition-colors hover:bg-blue-100"
+            onClick={onDismiss}
+          >
+            닫기
+          </button>
         </div>
       </div>
     </div>

@@ -140,17 +140,17 @@ export function Toolbar({
             </button>
           )}
           {menuOpen && (
-            <div className="absolute right-0 top-10 z-10 w-44 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
+            <div className="absolute right-0 top-10 z-10 w-56 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
               <button
                 type="button"
-                className="w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                 onClick={() => runMenuAction(() => onViewChange('drafts'))}
               >
                 초안 추가
               </button>
               <button
                 type="button"
-                className="w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:text-gray-400"
+                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:text-gray-400"
                 disabled={analysisStatus === 'analyzing'}
                 onClick={() => runMenuAction(onReanalyze)}
               >
@@ -159,7 +159,7 @@ export function Toolbar({
               {!sharedMode && (
                 <button
                   type="button"
-                  className="w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                   onClick={() => runMenuAction(onShareWorkspace)}
                 >
                   팀 공유 링크 만들기
@@ -167,21 +167,21 @@ export function Toolbar({
               )}
               <button
                 type="button"
-                className="w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                 onClick={() => runMenuAction(onExportMarkdown)}
               >
                 Markdown 내보내기
               </button>
               <button
                 type="button"
-                className="w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                 onClick={() => runMenuAction(onExportWorkspace)}
               >
                 워크스페이스 내보내기
               </button>
               <button
                 type="button"
-                className="w-full rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                 onClick={() => runMenuAction(onImportWorkspace)}
               >
                 워크스페이스 가져오기
