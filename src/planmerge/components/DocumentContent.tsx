@@ -1,14 +1,17 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { DocumentSection } from './DocumentSection';
 import { StatusBadge } from './StatusBadge';
 import { sections as defaultSections, type DocumentSectionData } from '../data/mergeResult';
-import type { ProjectSettings } from '../lib/localWorkspace';
+import type { LocalDraftSubmission, ProjectSettings } from '../lib/localWorkspace';
+import { evaluateAnalysisQuality } from '../lib/analysisQuality';
+import type { AnalysisQualityReport, QualityLevel, QualityMetric } from '../lib/analysisQuality';
 import type { PlanMergeAnalysisResult } from '../lib/ai/planmergeProtocol';
 
 type DocumentContentProps = {
   activeSection: number;
   analysisResult?: PlanMergeAnalysisResult;
   documentSections?: DocumentSectionData[];
+  drafts: LocalDraftSubmission[];
   onSectionSelect: (sectionNumber: number) => void;
   project: ProjectSettings;
 };
@@ -24,6 +27,7 @@ export function DocumentContent({
   activeSection,
   analysisResult,
   documentSections = defaultSections,
+  drafts,
   onSectionSelect,
   project,
 }: DocumentContentProps) {
@@ -35,6 +39,13 @@ export function DocumentContent({
   const reviewCount = analysisResult
     ? analysisResult.decisionBlocks.filter((block) => block.needsHumanReview).length
     : documentSections.filter((section) => section.status === 'review').length;
+  const qualityReport = useMemo(() => {
+    if (!analysisResult) {
+      return undefined;
+    }
+
+    return evaluateAnalysisQuality({ project, drafts }, analysisResult);
+  }, [analysisResult, drafts, project]);
 
   useLayoutEffect(() => {
     const container = scrollContainerRef.current;
@@ -80,6 +91,13 @@ export function DocumentContent({
           </div>
         </div>
 
+        {analysisResult && qualityReport && (
+          <AnalysisQualityStrip
+            analysisResult={analysisResult}
+            qualityReport={qualityReport}
+          />
+        )}
+
         <div className="border-t border-gray-200">
           {documentSections.map((section) => (
             <div
@@ -101,6 +119,117 @@ export function DocumentContent({
       </div>
     </div>
   );
+}
+
+function AnalysisQualityStrip({
+  analysisResult,
+  qualityReport,
+}: {
+  analysisResult: PlanMergeAnalysisResult;
+  qualityReport: AnalysisQualityReport;
+}) {
+  const sectionCoverage = metricById(qualityReport.metrics, 'section_coverage');
+  const sourceCoverage = metricById(qualityReport.metrics, 'source_coverage');
+  const traceability = metricById(qualityReport.metrics, 'option_traceability');
+  const primaryAction = qualityReport.nextActions[0];
+
+  return (
+    <section className="sticky top-0 z-10 mb-6 rounded-md border border-gray-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">Quality Gate</span>
+            <StatusBadge variant={qualityBadgeVariant(qualityReport.level)}>
+              {qualityLevelLabel(qualityReport.level)}
+            </StatusBadge>
+            <StatusBadge variant={analysisResult.source === 'local_harness' ? 'warning' : 'success'}>
+              {analysisSourceLabel(analysisResult.source)}
+            </StatusBadge>
+          </div>
+          <div className="text-lg text-gray-900">{qualityReport.score}점</div>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-gray-600">{qualityReport.summary}</p>
+          {primaryAction && (
+            <p className="mt-2 text-xs leading-relaxed text-gray-500">
+              다음 조치: {primaryAction.title} — {primaryAction.expectedImpact}
+            </p>
+          )}
+        </div>
+
+        <div className="grid min-w-0 grid-cols-3 gap-3 lg:min-w-80">
+          <QualityMiniMetric label="섹션" metric={sectionCoverage} />
+          <QualityMiniMetric label="출처" metric={sourceCoverage} />
+          <QualityMiniMetric label="추적성" metric={traceability} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function QualityMiniMetric({
+  label,
+  metric,
+}: {
+  label: string;
+  metric?: QualityMetric;
+}) {
+  return (
+    <div>
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="mt-1 text-sm text-gray-900">
+        {metric ? `${metric.value}/${metric.total}` : '-'}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-200">
+        <div
+          className="h-full rounded-full bg-gray-900"
+          style={{ width: `${metric?.score ?? 0}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function metricById(metrics: QualityMetric[], id: string) {
+  return metrics.find((metric) => metric.id === id);
+}
+
+function qualityBadgeVariant(level: QualityLevel) {
+  if (level === 'ready') {
+    return 'success';
+  }
+
+  if (level === 'review') {
+    return 'warning';
+  }
+
+  return 'danger';
+}
+
+function qualityLevelLabel(level: QualityLevel) {
+  if (level === 'ready') {
+    return 'Ready';
+  }
+
+  if (level === 'review') {
+    return 'Review';
+  }
+
+  return 'Blocked';
+}
+
+function analysisSourceLabel(source: PlanMergeAnalysisResult['source']) {
+  if (source === 'gms') {
+    return 'GMS';
+  }
+
+  if (source === 'gemini') {
+    return 'Gemini';
+  }
+
+  if (source === 'solar') {
+    return 'Solar';
+  }
+
+  return 'Local Harness';
 }
 
 function summarizeCriteria(contextPack: string) {

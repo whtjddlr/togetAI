@@ -1,4 +1,8 @@
-import { runLocalPlanMergeHarness, validatePlanMergeAnalysis } from './ai/planmergeProtocol';
+import {
+  documentSectionDefinitions,
+  runLocalPlanMergeHarness,
+  validatePlanMergeAnalysis,
+} from './ai/planmergeProtocol';
 import type { PlanMergeAnalysisResult } from './ai/planmergeProtocol';
 
 export type ProjectSettings = {
@@ -202,6 +206,14 @@ export const sampleDrafts: LocalDraftSubmission[] = [
     createdAtLabel: '샘플',
   },
 ];
+
+export const verifiedSampleSummary = {
+  title: sampleProjectSettings.title,
+  draftCount: sampleDrafts.length,
+  sectionCount: documentSectionDefinitions.length,
+  conflictCount: 1,
+  qualityScore: 100,
+} as const;
 
 export const defaultWorkspaceState: LocalWorkspaceState = {
   analysisRunId: 0,

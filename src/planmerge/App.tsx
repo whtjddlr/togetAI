@@ -427,6 +427,7 @@ export default function App() {
           activeSection={activeSection}
           analysisResult={workspaceState.analysisResult}
           documentSections={mergeSections}
+          drafts={workspaceState.drafts}
           onSectionSelect={setActiveSection}
           project={workspaceState.project}
         />
