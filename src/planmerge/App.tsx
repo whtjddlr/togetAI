@@ -45,9 +45,16 @@ import type {
   ProjectSettings,
 } from './lib/localWorkspace';
 import { generatePlanMergeAnalysis } from './lib/ai/planmergeAnalysisClient';
-import { createSharedWorkspace, fetchSharedWorkspace, revokeSharedWorkspace } from './lib/sharedWorkspaceClient';
+import {
+  createSharedWorkspace,
+  fetchSharedWorkspace,
+  revokeSharedWorkspace,
+  SharedWorkspaceRequestError,
+  updateSharedWorkspace,
+} from './lib/sharedWorkspaceClient';
 import {
   clearSharedWorkspaceOwnerAccess,
+  loadLegacySharedWorkspaceOwnerAccess,
   loadSharedWorkspaceOwnerAccess,
   saveSharedWorkspaceOwnerAccess,
 } from './lib/sharedWorkspaceOwnerStore';
@@ -76,6 +83,7 @@ export default function App() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [hasLoadedWorkspace, setHasLoadedWorkspace] = useState(false);
   const [sharedWorkspaceId, setSharedWorkspaceId] = useState<string | null>(null);
+  const [sharedWorkspaceSnapshotVersion, setSharedWorkspaceSnapshotVersion] = useState<number | null>(null);
   const [sharedWorkspaceLink, setSharedWorkspaceLink] = useState<string | null>(null);
   const [ownedShareAccess, setOwnedShareAccess] = useState<SharedWorkspaceOwnerAccess | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -110,7 +118,7 @@ export default function App() {
     ?? mergeSections.filter((section) => section.content.trim()).length;
   const sampleWorkspace = activeWorkspaceId === SAMPLE_WORKSPACE_ID || isSampleWorkspaceState(workspaceState);
   const workspaceScopeKey = sharedWorkspaceId
-    ? `shared:${sharedWorkspaceId}`
+    ? `shared:${sharedWorkspaceId}:${sharedWorkspaceSnapshotVersion ?? 1}`
     : `local:${activeWorkspaceId ?? 'pending'}`;
   const sharedMode = Boolean(sharedWorkspaceId);
   const effectiveActiveView = sharedMode && isSharedRestrictedView(activeView) ? 'merge' : activeView;
@@ -153,7 +161,8 @@ export default function App() {
       const session = loadLocalWorkspaceSession({ freshStart });
 
       applyLocalWorkspaceSession(session);
-      setOwnedShareAccess(freshStart ? null : loadSharedWorkspaceOwnerAccess());
+      setSharedWorkspaceSnapshotVersion(null);
+      setOwnedShareAccess(freshStart ? null : loadOwnerAccessForLocalWorkspace(session.activeWorkspaceId));
       setHasLoadedWorkspace(true);
     };
 
@@ -175,6 +184,7 @@ export default function App() {
 
         if (shared) {
           setSharedWorkspaceId(wsId);
+          setSharedWorkspaceSnapshotVersion(shared.snapshotVersion);
           setActiveWorkspaceId(null);
           setSharedWorkspaceLink(null);
           setOwnedShareAccess(loadSharedWorkspaceOwnerAccess(wsId));
@@ -224,6 +234,7 @@ export default function App() {
 
   const leaveSharedMode = () => {
     setSharedWorkspaceId(null);
+    setSharedWorkspaceSnapshotVersion(null);
     setSharedWorkspaceLink(null);
     setOwnedShareAccess(null);
     removeSharedWorkspaceIdFromUrl();
@@ -283,6 +294,7 @@ export default function App() {
 
     leaveSharedMode();
     applyLocalWorkspaceSession(session);
+    setOwnedShareAccess(loadOwnerAccessForLocalWorkspace(workspaceId));
     setActiveSection(7);
     showNotice('워크스페이스를 전환했습니다.');
   };
@@ -396,6 +408,7 @@ export default function App() {
       registry: created.registry,
       state: sampleWorkspace,
     });
+    setOwnedShareAccess(loadOwnerAccessForLocalWorkspace(SAMPLE_WORKSPACE_ID));
     setActiveSection(7);
     setActiveView('merge');
 
@@ -553,23 +566,65 @@ export default function App() {
     }
 
     try {
-      const shared = await createSharedWorkspace(createWorkspaceExport(workspaceState));
+      const exportJson = createWorkspaceExport(workspaceState);
+      const savedOwnerAccess = activeWorkspaceId
+        ? loadOwnerAccessForLocalWorkspace(activeWorkspaceId)
+        : ownedShareAccess;
+
+      if (savedOwnerAccess?.manageToken) {
+        try {
+          const updated = await updateSharedWorkspace(
+            savedOwnerAccess.workspaceId,
+            savedOwnerAccess.manageToken,
+            exportJson,
+          );
+          const ownerAccess: SharedWorkspaceOwnerAccess = {
+            ...savedOwnerAccess,
+            workspaceId: updated.id,
+            expiresAt: updated.expiresAt,
+            snapshotVersion: updated.snapshotVersion,
+            sharedAnalysisRunId: workspaceState.analysisRunId,
+          };
+          const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${updated.id}`;
+
+          saveSharedWorkspaceOwnerAccess(ownerAccess, activeWorkspaceId);
+          setOwnedShareAccess(ownerAccess);
+          setSharedWorkspaceLink(nextShareUrl);
+          showNotice('공유 링크를 새 분석으로 갱신했습니다. 기존 링크가 계속 유효합니다.');
+          return;
+        } catch (error) {
+          if (!(error instanceof SharedWorkspaceRequestError) || !shouldCreateFreshShareAfterUpdateError(error.status)) {
+            showNotice(error instanceof Error ? error.message : '공유 링크 갱신에 실패했습니다.');
+            return;
+          }
+
+          clearSharedWorkspaceOwnerAccess(savedOwnerAccess.workspaceId, activeWorkspaceId);
+        }
+      }
+
+      const shared = await createSharedWorkspace(exportJson);
       const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${shared.id}`;
-      const ownerAccess = {
+      const ownerAccess: SharedWorkspaceOwnerAccess = {
         workspaceId: shared.id,
         manageToken: shared.manageToken,
         expiresAt: shared.expiresAt,
+        snapshotVersion: shared.snapshotVersion,
+        sharedAnalysisRunId: workspaceState.analysisRunId,
       };
 
-      saveSharedWorkspaceOwnerAccess(ownerAccess);
+      saveSharedWorkspaceOwnerAccess(ownerAccess, activeWorkspaceId);
       setOwnedShareAccess(ownerAccess);
       setSharedWorkspaceLink(nextShareUrl);
 
       try {
         await navigator.clipboard.writeText(nextShareUrl);
-        showNotice('공유 링크를 만들었습니다. 30일 후 만료됩니다.');
+        showNotice(savedOwnerAccess
+          ? '기존 공유 링크를 갱신할 수 없어 새 링크를 만들었습니다. 30일 후 만료됩니다.'
+          : '공유 링크를 만들었습니다. 30일 후 만료됩니다.');
       } catch {
-        showNotice('공유 링크를 만들었습니다. 30일 후 만료됩니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.');
+        showNotice(savedOwnerAccess
+          ? '기존 공유 링크를 갱신할 수 없어 새 링크를 만들었습니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.'
+          : '공유 링크를 만들었습니다. 30일 후 만료됩니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.');
       }
     } catch (error) {
       showNotice(error instanceof Error ? error.message : '공유 링크 생성에 실패했습니다.');
@@ -584,7 +639,7 @@ export default function App() {
 
     try {
       await revokeSharedWorkspace(ownedShareAccess.workspaceId, ownedShareAccess.manageToken);
-      clearSharedWorkspaceOwnerAccess(ownedShareAccess.workspaceId);
+      clearSharedWorkspaceOwnerAccess(ownedShareAccess.workspaceId, activeWorkspaceId);
       setOwnedShareAccess(null);
       setSharedWorkspaceLink((current) =>
         current && getShareUrlWorkspaceId(current) === ownedShareAccess.workspaceId ? null : current,
@@ -592,6 +647,7 @@ export default function App() {
 
       if (sharedWorkspaceId === ownedShareAccess.workspaceId) {
         setSharedWorkspaceId(null);
+        setSharedWorkspaceSnapshotVersion(null);
         removeSharedWorkspaceIdFromUrl();
       }
 
@@ -791,6 +847,8 @@ export default function App() {
             analysisRunId={workspaceState.analysisRunId}
             localWorkspaceId={activeWorkspaceId}
             sharedWorkspaceId={sharedWorkspaceId}
+            sharedSnapshotVersion={sharedWorkspaceSnapshotVersion}
+            ownerShareAccess={sharedMode ? null : ownedShareAccess}
             onApplyDecisionOption={sharedMode ? undefined : applyDecisionOption}
           />
         )}
@@ -953,7 +1011,7 @@ function ShareWorkspaceBanner({
         <div className="min-w-0">
           <div className="text-sm text-blue-950">팀 공유 링크가 생성되었습니다.</div>
           <p className="mt-1 text-xs leading-relaxed text-blue-700">
-            현재 워크스페이스의 스냅샷 링크입니다. 이후 수정한 내용까지 공유하려면 새 링크를 다시 만들어야 합니다.
+            현재 워크스페이스의 스냅샷 링크입니다. 이후 수정한 내용까지 공유하려면 공유를 다시 갱신하세요.
           </p>
         </div>
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
@@ -1008,6 +1066,14 @@ function removeSharedWorkspaceIdFromUrl() {
 
 function isSharedRestrictedView(view: AppView) {
   return view === 'setup';
+}
+
+function shouldCreateFreshShareAfterUpdateError(status: number | undefined) {
+  return status === 401 || status === 404 || status === 410;
+}
+
+function loadOwnerAccessForLocalWorkspace(localWorkspaceId: string) {
+  return loadSharedWorkspaceOwnerAccess(localWorkspaceId) ?? loadLegacySharedWorkspaceOwnerAccess();
 }
 
 function createDecisionOverrideLog(

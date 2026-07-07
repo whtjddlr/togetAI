@@ -32,12 +32,15 @@ import {
   submitSharedVote,
 } from '../lib/sharedWorkspaceClient';
 import type { SharedParticipation } from '../lib/sharedWorkspaceClient';
+import type { SharedWorkspaceOwnerAccess } from '../lib/sharedWorkspaceOwnerStore';
 
 type DecisionPanelProps = {
   selectedSection: DocumentSectionData;
   analysisRunId: number;
   localWorkspaceId: string | null;
   sharedWorkspaceId?: string | null;
+  sharedSnapshotVersion?: number | null;
+  ownerShareAccess?: SharedWorkspaceOwnerAccess | null;
   onApplyDecisionOption?: (decisionBlockId: string, optionId: string) => void;
 };
 
@@ -47,6 +50,13 @@ type SharedActionErrorState = {
   action: SharedPendingAction | 'load';
   decisionBlockId: string;
   message: string;
+};
+
+type OwnerSharedFeedbackState = {
+  sourceKey: string;
+  status: 'loaded' | 'error';
+  participation: SharedParticipation | null;
+  message?: string;
 };
 
 function toSharedDecisionVote(
@@ -365,6 +375,96 @@ function EmptyDecisionState({ label }: { label: string }) {
   );
 }
 
+function SharedLinkFeedbackPanel({
+  errorMessage,
+  loading,
+  participation,
+  trace,
+}: {
+  errorMessage?: string;
+  loading: boolean;
+  participation: SharedParticipation | null;
+  trace: DecisionTrace;
+}) {
+  const options = useMemo(() => buildVoteOptions(trace), [trace]);
+  const votes = toSharedDecisionVote(participation, 'shared-link-feedback');
+  const totalVotes = getTotalVotes(options, votes);
+  const opinions = participation?.opinions ?? [];
+
+  return (
+    <div className="pb-6 border-b border-gray-100">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-xs text-gray-500">공유 링크 피드백</div>
+        <div className="text-xs text-gray-400">
+          {loading ? '불러오는 중' : `${totalVotes}표 · 의견 ${opinions.length}개`}
+        </div>
+      </div>
+
+      {errorMessage ? (
+        <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
+          {errorMessage}
+        </div>
+      ) : loading ? (
+        <div className="rounded-md border border-blue-100 bg-blue-50/40 px-3 py-2 text-xs text-blue-700">
+          공유 링크 피드백을 불러오는 중입니다.
+        </div>
+      ) : participation ? (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            {options.map((option) => {
+              const count = getVoteCount(option, votes);
+              const percent = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+
+              return (
+                <div key={option.id} className="rounded-md border border-gray-100 p-3">
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm text-gray-900">{option.label}</div>
+                      <div className="mt-0.5 text-xs text-gray-500">{groupLabel(option.group)}</div>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {count}표 · {percent}%
+                    </div>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className={`h-full rounded-full ${
+                        option.group === 'conflict' ? 'bg-amber-400' : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs text-gray-500">공유 의견</div>
+            {opinions.length > 0 ? (
+              <div className="space-y-2">
+                {opinions.map((opinion) => (
+                  <div key={opinion.id} className="rounded-md border border-gray-100 p-3">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <div className="text-xs text-gray-500">익명 의견</div>
+                      <div className="text-xs text-gray-400">{opinion.createdAtLabel}</div>
+                    </div>
+                    <p className="text-sm leading-relaxed text-gray-700">{opinion.content}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyDecisionState label="공유 링크에 아직 남겨진 의견이 없습니다." />
+            )}
+          </div>
+        </div>
+      ) : (
+        <EmptyDecisionState label="공유 링크 피드백을 찾지 못했습니다." />
+      )}
+    </div>
+  );
+}
+
 function getSharedParticipationErrorMessage(error: unknown) {
   if (error instanceof SharedWorkspaceRequestError) {
     if (error.status === 429) {
@@ -373,6 +473,10 @@ function getSharedParticipationErrorMessage(error: unknown) {
 
     if (error.status === 410) {
       return SHARED_LINK_UNAVAILABLE_MESSAGE;
+    }
+
+    if (error.status === 409) {
+      return error.message;
     }
 
     return SHARED_PARTICIPATION_FAILED_MESSAGE;
@@ -411,6 +515,8 @@ export function DecisionPanel({
   analysisRunId,
   localWorkspaceId,
   sharedWorkspaceId,
+  sharedSnapshotVersion,
+  ownerShareAccess,
   onApplyDecisionOption,
 }: DecisionPanelProps) {
   const traces = selectedSection.decisionTraces?.length
@@ -422,7 +528,7 @@ export function DecisionPanel({
   ) ?? traces[0];
   const localParticipationScope: ParticipationStateScope = `local:${localWorkspaceId ?? 'pending'}`;
   const clusterStorageScope: OpinionClusterStateScope = sharedWorkspaceId
-    ? `shared:${sharedWorkspaceId}`
+    ? `shared:${sharedWorkspaceId}:${sharedSnapshotVersion ?? 1}`
     : `local:${localWorkspaceId ?? 'pending'}`;
   const [anonymousClientId] = useState(() => getAnonymousClientId());
   const [participationState, setParticipationState] = useState<ParticipationState>(() =>
@@ -434,7 +540,23 @@ export function DecisionPanel({
     useState<Record<string, SharedParticipation>>({});
   const [sharedPendingAction, setSharedPendingAction] = useState<SharedPendingAction | null>(null);
   const [sharedActionError, setSharedActionError] = useState<SharedActionErrorState | null>(null);
+  const [ownerSharedFeedbackState, setOwnerSharedFeedbackState] = useState<OwnerSharedFeedbackState | null>(null);
   const sharedParticipation = sharedParticipationByBlock[trace.decisionBlockId] ?? null;
+  const ownerFeedbackInSync = Boolean(
+    !sharedWorkspaceId &&
+    ownerShareAccess &&
+    ownerShareAccess.sharedAnalysisRunId === analysisRunId,
+  );
+  const ownerFeedbackSourceKey = ownerFeedbackInSync && ownerShareAccess
+    ? `${ownerShareAccess.workspaceId}:${ownerShareAccess.snapshotVersion}:${trace.decisionBlockId}`
+    : null;
+  const currentOwnerFeedbackState = ownerFeedbackSourceKey &&
+    ownerSharedFeedbackState?.sourceKey === ownerFeedbackSourceKey
+    ? ownerSharedFeedbackState
+    : null;
+  const ownerFeedbackLoading = Boolean(
+    ownerFeedbackSourceKey && ownerSharedFeedbackState?.sourceKey !== ownerFeedbackSourceKey,
+  );
 
   const applySharedParticipation = useCallback((decisionBlockId: string, participation: SharedParticipation) => {
     setSharedActionError(null);
@@ -463,6 +585,12 @@ export function DecisionPanel({
     currentBlockError && currentBlockError.action !== 'opinion' ? currentBlockError.message : null;
   const sharedOpinionErrorMessage =
     currentBlockError?.action === 'opinion' ? currentBlockError.message : undefined;
+  const ownerFeedbackParticipation = currentOwnerFeedbackState?.status === 'loaded'
+    ? currentOwnerFeedbackState.participation
+    : null;
+  const ownerFeedbackErrorMessage = currentOwnerFeedbackState?.status === 'error'
+    ? currentOwnerFeedbackState.message
+    : undefined;
 
   useEffect(() => {
     // 공유 모드에서는 서버가 단일 소스이므로 로컬 참여 상태를 건드리지 않는다.
@@ -478,12 +606,13 @@ export function DecisionPanel({
   }, [clusterResults, clusterStorageScope]);
 
   useEffect(() => {
-    if (!sharedWorkspaceId) {
+    if (!sharedWorkspaceId || !sharedSnapshotVersion) {
       return;
     }
 
     let cancelled = false;
     const decisionBlockId = trace.decisionBlockId;
+    const snapshotVersion = sharedSnapshotVersion;
 
     void (async () => {
       try {
@@ -491,6 +620,7 @@ export function DecisionPanel({
           sharedWorkspaceId,
           decisionBlockId,
           anonymousClientId,
+          snapshotVersion,
         );
 
         if (!cancelled && participation) {
@@ -510,7 +640,51 @@ export function DecisionPanel({
     return () => {
       cancelled = true;
     };
-  }, [sharedWorkspaceId, trace.decisionBlockId, anonymousClientId, applySharedParticipation]);
+  }, [sharedWorkspaceId, sharedSnapshotVersion, trace.decisionBlockId, anonymousClientId, applySharedParticipation]);
+
+  useEffect(() => {
+    if (!ownerShareAccess || !ownerFeedbackSourceKey) {
+      return;
+    }
+
+    let cancelled = false;
+    const decisionBlockId = trace.decisionBlockId;
+    const sourceKey = ownerFeedbackSourceKey;
+    const snapshotVersion = ownerShareAccess.snapshotVersion;
+    const workspaceId = ownerShareAccess.workspaceId;
+
+    void (async () => {
+      try {
+        const participation = await fetchBlockParticipation(
+          workspaceId,
+          decisionBlockId,
+          undefined,
+          snapshotVersion,
+        );
+
+        if (!cancelled) {
+          setOwnerSharedFeedbackState({
+            sourceKey,
+            status: 'loaded',
+            participation,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOwnerSharedFeedbackState({
+            sourceKey,
+            status: 'error',
+            participation: null,
+            message: getSharedParticipationErrorMessage(error),
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ownerFeedbackSourceKey, ownerShareAccess, trace.decisionBlockId]);
 
   const handleVote = (optionId: string) => {
     if (sharedWorkspaceId) {
@@ -518,7 +692,17 @@ export function DecisionPanel({
         return;
       }
 
+      if (!sharedSnapshotVersion) {
+        setSharedActionError({
+          action: 'vote',
+          decisionBlockId: trace.decisionBlockId,
+          message: '공유본 버전을 확인하지 못했습니다. 페이지를 새로고침 해주세요.',
+        });
+        return;
+      }
+
       const decisionBlockId = trace.decisionBlockId;
+      const snapshotVersion = sharedSnapshotVersion;
 
       setSharedPendingAction('vote');
       setSharedActionError(null);
@@ -526,6 +710,7 @@ export function DecisionPanel({
         try {
           const participation = await submitSharedVote(
             sharedWorkspaceId,
+            snapshotVersion,
             decisionBlockId,
             optionId,
             anonymousClientId,
@@ -584,7 +769,17 @@ export function DecisionPanel({
         return;
       }
 
+      if (!sharedSnapshotVersion) {
+        setSharedActionError({
+          action: 'opinion',
+          decisionBlockId: trace.decisionBlockId,
+          message: '공유본 버전을 확인하지 못했습니다. 페이지를 새로고침 해주세요.',
+        });
+        return;
+      }
+
       const decisionBlockId = trace.decisionBlockId;
+      const snapshotVersion = sharedSnapshotVersion;
 
       setSharedPendingAction('opinion');
       setSharedActionError(null);
@@ -592,6 +787,7 @@ export function DecisionPanel({
         try {
           const participation = await submitSharedOpinion(
             sharedWorkspaceId,
+            snapshotVersion,
             decisionBlockId,
             content,
             anonymousClientId,
@@ -733,6 +929,24 @@ export function DecisionPanel({
           <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
             {sharedVoteErrorMessage}
           </div>
+        )}
+
+        {!sharedWorkspaceId && ownerShareAccess && (
+          ownerFeedbackInSync ? (
+            <SharedLinkFeedbackPanel
+              errorMessage={ownerFeedbackErrorMessage}
+              loading={ownerFeedbackLoading}
+              participation={ownerFeedbackParticipation}
+              trace={trace}
+            />
+          ) : (
+            <div className="pb-6 border-b border-gray-100">
+              <div className="mb-2 text-xs text-gray-500">공유 링크 피드백</div>
+              <div className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                공유 이후 분석이 변경되어 집계를 표시하지 않습니다. 공유를 갱신하세요.
+              </div>
+            </div>
+          )
         )}
 
         <OpinionClusterPanel

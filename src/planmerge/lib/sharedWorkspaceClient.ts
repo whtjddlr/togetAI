@@ -9,12 +9,20 @@ export type SharedParticipation = {
 
 export type SharedWorkspaceLoadResult = {
   state: LocalWorkspaceState;
+  snapshotVersion: number;
   warnings: string[];
 };
 
 export type SharedWorkspaceCreateResult = {
   id: string;
   manageToken: string;
+  snapshotVersion: number;
+  expiresAt: string;
+};
+
+export type SharedWorkspaceUpdateResult = {
+  id: string;
+  snapshotVersion: number;
   expiresAt: string;
 };
 
@@ -100,6 +108,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSharedAiModel(value: unknown): value is LocalDraftSubmission['aiModel'] {
   return typeof value === 'string' && sharedAiModels.has(value as LocalDraftSubmission['aiModel']);
+}
+
+function readPositiveInteger(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
 }
 
 function toSharedWorkspaceDraft(value: unknown): SharedWorkspaceDraft | null {
@@ -195,7 +209,7 @@ function getRetryAfter(response: Response) {
   return response.headers.get('Retry-After') ?? undefined;
 }
 
-function throwIfSharedParticipationFailed(response: Response) {
+async function throwIfSharedParticipationFailed(response: Response) {
   if (response.ok) {
     return;
   }
@@ -213,6 +227,13 @@ function throwIfSharedParticipationFailed(response: Response) {
     throw new SharedWorkspaceRequestError(SHARED_LINK_UNAVAILABLE_MESSAGE, {
       status: response.status,
     });
+  }
+
+  if (response.status === 409) {
+    throw new SharedWorkspaceRequestError(
+      await readErrorMessage(response, SHARED_PARTICIPATION_FAILED_MESSAGE),
+      { status: response.status },
+    );
   }
 
   throw new SharedWorkspaceRequestError(SHARED_PARTICIPATION_FAILED_MESSAGE, {
@@ -246,7 +267,7 @@ async function throwIfSharedDraftFailed(response: Response, fallback: string = S
 }
 
 async function readParticipation(response: Response) {
-  throwIfSharedParticipationFailed(response);
+  await throwIfSharedParticipationFailed(response);
 
   try {
     return toParticipation(await response.json() as ParticipationResponse);
@@ -271,6 +292,7 @@ export async function createSharedWorkspace(exportJson: string): Promise<SharedW
   const data = await response.json() as {
     id?: string;
     manageToken?: string;
+    snapshotVersion?: unknown;
     expiresAt?: string;
   };
 
@@ -281,6 +303,51 @@ export async function createSharedWorkspace(exportJson: string): Promise<SharedW
   return {
     id: data.id,
     manageToken: data.manageToken,
+    snapshotVersion: readPositiveInteger(data.snapshotVersion) ?? 1,
+    expiresAt: data.expiresAt,
+  };
+}
+
+export async function updateSharedWorkspace(
+  workspaceId: string,
+  manageToken: string,
+  exportJson: string,
+): Promise<SharedWorkspaceUpdateResult> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-manage-token': manageToken,
+    },
+    body: exportJson,
+  });
+
+  if (!response.ok) {
+    const message = await readErrorMessage(response, '공유 링크 갱신에 실패했습니다.');
+    const retryAfter = getRetryAfter(response);
+
+    throw new SharedWorkspaceRequestError(message, {
+      status: response.status,
+      ...(response.status === 429 && retryAfter !== undefined ? { retryAfter } : {}),
+    });
+  }
+
+  const data = await response.json() as {
+    id?: unknown;
+    snapshotVersion?: unknown;
+    expiresAt?: unknown;
+  };
+  const snapshotVersion = readPositiveInteger(data.snapshotVersion);
+
+  if (typeof data.id !== 'string' || !snapshotVersion || typeof data.expiresAt !== 'string') {
+    throw new SharedWorkspaceRequestError('공유 링크 갱신 응답이 올바르지 않습니다.', {
+      status: response.status,
+    });
+  }
+
+  return {
+    id: data.id,
+    snapshotVersion,
     expiresAt: data.expiresAt,
   };
 }
@@ -313,10 +380,10 @@ export async function fetchSharedWorkspace(workspaceId: string): Promise<SharedW
     return null;
   }
 
-  let data: { workspace?: unknown };
+  let data: { snapshotVersion?: unknown; workspace?: unknown };
 
   try {
-    data = await response.json() as { workspace?: unknown };
+    data = await response.json() as { snapshotVersion?: unknown; workspace?: unknown };
   } catch {
     return null;
   }
@@ -337,6 +404,7 @@ export async function fetchSharedWorkspace(workspaceId: string): Promise<SharedW
     if (parsed.valid) {
       return {
         state: parsed.state,
+        snapshotVersion: readPositiveInteger(data.snapshotVersion) ?? 1,
         warnings: parsed.warnings,
       };
     }
@@ -440,9 +508,19 @@ export async function updateSharedDraftStatus(
 export async function fetchBlockParticipation(
   workspaceId: string,
   decisionBlockId: string,
-  anonymousKey: string,
+  anonymousKey?: string,
+  snapshotVersion?: number,
 ): Promise<SharedParticipation> {
-  const query = new URLSearchParams({ decisionBlockId, anonymousKey });
+  const query = new URLSearchParams({ decisionBlockId });
+
+  if (anonymousKey) {
+    query.set('anonymousKey', anonymousKey);
+  }
+
+  if (snapshotVersion !== undefined) {
+    query.set('version', String(snapshotVersion));
+  }
+
   const response = await fetchParticipationResponse(
     `/api/workspaces/${encodeURIComponent(workspaceId)}/participation?${query.toString()}`,
   );
@@ -452,6 +530,7 @@ export async function fetchBlockParticipation(
 
 export async function submitSharedVote(
   workspaceId: string,
+  snapshotVersion: number,
   decisionBlockId: string,
   optionId: string,
   anonymousKey: string,
@@ -459,7 +538,7 @@ export async function submitSharedVote(
   const response = await fetchParticipationResponse(`/api/workspaces/${encodeURIComponent(workspaceId)}/votes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ decisionBlockId, optionId, anonymousKey }),
+    body: JSON.stringify({ decisionBlockId, optionId, anonymousKey, snapshotVersion }),
   });
 
   return readParticipation(response);
@@ -467,6 +546,7 @@ export async function submitSharedVote(
 
 export async function submitSharedOpinion(
   workspaceId: string,
+  snapshotVersion: number,
   decisionBlockId: string,
   content: string,
   anonymousKey: string,
@@ -474,7 +554,7 @@ export async function submitSharedOpinion(
   const response = await fetchParticipationResponse(`/api/workspaces/${encodeURIComponent(workspaceId)}/opinions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ decisionBlockId, content, anonymousKey }),
+    body: JSON.stringify({ decisionBlockId, content, anonymousKey, snapshotVersion }),
   });
 
   return readParticipation(response);

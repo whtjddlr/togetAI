@@ -88,13 +88,54 @@ export async function findSharedWorkspaceAccessStatus(workspaceId: string) {
   return getSharedWorkspaceAccessStatus(workspace);
 }
 
+export type SharedWorkspaceAccessDetails =
+  | {
+    status: 'not_found';
+    snapshotVersion: null;
+  }
+  | {
+    status: 'active' | 'expired_or_revoked';
+    snapshotVersion: number;
+  };
+
+export async function findSharedWorkspaceAccessDetails(workspaceId: string): Promise<SharedWorkspaceAccessDetails> {
+  const db = getDb();
+  const workspace = await db.sharedWorkspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, expiresAt: true, revokedAt: true, snapshotVersion: true },
+  });
+
+  if (!workspace) {
+    return {
+      status: 'not_found' as const,
+      snapshotVersion: null,
+    };
+  }
+
+  const status = getSharedWorkspaceAccessStatus(workspace);
+
+  return {
+    status: status === 'active' ? 'active' : 'expired_or_revoked',
+    snapshotVersion: workspace.snapshotVersion,
+  };
+}
+
 export type SharedDecisionBlockTarget =
   | {
     status: 'found';
+    snapshotVersion: number;
     votableOptionIds: string[];
   }
   | {
-    status: 'workspace_not_found' | 'workspace_expired_or_revoked' | 'invalid_decision_block';
+    status: 'version_mismatch';
+    snapshotVersion: number;
+  }
+  | {
+    status: 'invalid_decision_block';
+    snapshotVersion: number;
+  }
+  | {
+    status: 'workspace_not_found' | 'workspace_expired_or_revoked';
   };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -167,11 +208,12 @@ function findDecisionBlockOptionIds(snapshot: unknown, decisionBlockId: string) 
 export async function getSharedDecisionBlockTarget(
   workspaceId: string,
   decisionBlockId: string,
+  claimedSnapshotVersion: number,
 ): Promise<SharedDecisionBlockTarget> {
   const db = getDb();
   const workspace = await db.sharedWorkspace.findUnique({
     where: { id: workspaceId },
-    select: { id: true, snapshot: true, expiresAt: true, revokedAt: true },
+    select: { id: true, snapshot: true, snapshotVersion: true, expiresAt: true, revokedAt: true },
   });
 
   if (!workspace) {
@@ -182,20 +224,26 @@ export async function getSharedDecisionBlockTarget(
     return { status: 'workspace_expired_or_revoked' };
   }
 
+  if (workspace.snapshotVersion !== claimedSnapshotVersion) {
+    return { status: 'version_mismatch', snapshotVersion: workspace.snapshotVersion };
+  }
+
   const votableOptionIds = findDecisionBlockOptionIds(workspace.snapshot, decisionBlockId);
 
   if (!votableOptionIds) {
-    return { status: 'invalid_decision_block' };
+    return { status: 'invalid_decision_block', snapshotVersion: workspace.snapshotVersion };
   }
 
   return {
     status: 'found',
+    snapshotVersion: workspace.snapshotVersion,
     votableOptionIds,
   };
 }
 
 export async function getBlockParticipation(
   workspaceId: string,
+  snapshotVersion: number,
   decisionBlockId: string,
   anonymousKey?: string,
 ): Promise<SharedBlockParticipation> {
@@ -203,14 +251,15 @@ export async function getBlockParticipation(
   const [voteGroups, myVote, opinionRows] = await Promise.all([
     db.sharedWorkspaceVote.groupBy({
       by: ['optionId'],
-      where: { workspaceId, decisionBlockId },
+      where: { workspaceId, snapshotVersion, decisionBlockId },
       _count: { _all: true },
     }),
     anonymousKey
       ? db.sharedWorkspaceVote.findUnique({
         where: {
-          workspaceId_decisionBlockId_anonymousKey: {
+          workspaceId_snapshotVersion_decisionBlockId_anonymousKey: {
             workspaceId,
+            snapshotVersion,
             decisionBlockId,
             anonymousKey,
           },
@@ -219,7 +268,7 @@ export async function getBlockParticipation(
       })
       : Promise.resolve(null),
     db.sharedWorkspaceOpinion.findMany({
-      where: { workspaceId, decisionBlockId },
+      where: { workspaceId, snapshotVersion, decisionBlockId },
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: { id: true, content: true, createdAt: true },

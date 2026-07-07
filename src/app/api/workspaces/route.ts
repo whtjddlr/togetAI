@@ -57,13 +57,14 @@ export async function POST(request: Request) {
         expiresAt,
         manageTokenHash: hashManageToken(manageToken),
       },
-      select: { id: true, expiresAt: true },
+      select: { id: true, expiresAt: true, snapshotVersion: true },
     });
 
     return NextResponse.json(
       {
         id: workspace.id,
         manageToken,
+        snapshotVersion: workspace.snapshotVersion,
         expiresAt: (workspace.expiresAt ?? expiresAt).toISOString(),
       },
       { status: 201 },
