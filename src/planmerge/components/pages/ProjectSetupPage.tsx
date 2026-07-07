@@ -7,6 +7,14 @@ type ProjectSetupPageProps = {
   onSave: (project: ProjectSettings) => void;
 };
 
+const PROJECT_FIELD_LIMITS = {
+  title: 120,
+  goal: 2000,
+  contextPack: 4000,
+  forbiddenDirection: 2000,
+  outputStyle: 1000,
+} as const;
+
 export function ProjectSetupPage({ project, onLoadSample, onSave }: ProjectSetupPageProps) {
   const [form, setForm] = useState(project);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -46,6 +54,7 @@ export function ProjectSetupPage({ project, onLoadSample, onSave }: ProjectSetup
               <span className="mb-2 block text-sm text-gray-700">프로젝트명</span>
               <input
                 value={form.title}
+                maxLength={PROJECT_FIELD_LIMITS.title}
                 onChange={(event) => updateForm('title', event.target.value)}
                 placeholder="예: AI 공동 기획서 병합 도구"
                 className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
@@ -70,6 +79,7 @@ export function ProjectSetupPage({ project, onLoadSample, onSave }: ProjectSetup
               <span className="mb-2 block text-sm text-gray-700">기획서 목표</span>
               <textarea
                 value={form.goal}
+                maxLength={PROJECT_FIELD_LIMITS.goal}
                 onChange={(event) => updateForm('goal', event.target.value)}
                 placeholder="예: 여러 사람이 각자 AI로 만든 기획서 초안을 하나의 문서로 병합한다."
                 className="min-h-24 w-full rounded-md border border-gray-200 px-3 py-2 text-sm leading-relaxed outline-none focus:border-blue-500"
@@ -80,6 +90,7 @@ export function ProjectSetupPage({ project, onLoadSample, onSave }: ProjectSetup
               <span className="mb-2 block text-sm text-gray-700">공통 기준</span>
               <textarea
                 value={form.contextPack}
+                maxLength={PROJECT_FIELD_LIMITS.contextPack}
                 onChange={(event) => updateForm('contextPack', event.target.value)}
                 placeholder="예: MVP는 2주 안에 만들 수 있어야 한다. 초기에는 텍스트 붙여넣기 기반으로 한다."
                 className="min-h-24 w-full rounded-md border border-gray-200 px-3 py-2 text-sm leading-relaxed outline-none focus:border-blue-500"
@@ -90,6 +101,7 @@ export function ProjectSetupPage({ project, onLoadSample, onSave }: ProjectSetup
               <span className="mb-2 block text-sm text-gray-700">금지할 방향</span>
               <input
                 value={form.forbiddenDirection}
+                maxLength={PROJECT_FIELD_LIMITS.forbiddenDirection}
                 onChange={(event) => updateForm('forbiddenDirection', event.target.value)}
                 placeholder="예: 초기 MVP에 실시간 공동 편집, 외부 문서 연동, 팀 초대를 포함하지 않는다."
                 className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
@@ -100,6 +112,7 @@ export function ProjectSetupPage({ project, onLoadSample, onSave }: ProjectSetup
               <span className="mb-2 block text-sm text-gray-700">원하는 출력 스타일</span>
               <input
                 value={form.outputStyle}
+                maxLength={PROJECT_FIELD_LIMITS.outputStyle}
                 onChange={(event) => updateForm('outputStyle', event.target.value)}
                 placeholder="예: 노션처럼 간결하고 읽기 쉬운 서비스 기획서 톤"
                 className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"

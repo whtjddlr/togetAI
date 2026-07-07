@@ -28,7 +28,7 @@ export function buildMarkdownExport({
     ...sections.map((section) => [
       `## ${section.number}. ${section.title}`,
       '',
-      section.content || '내용 없음',
+      sanitizeMultilineContent(section.content || '내용 없음'),
       '',
     ].join('\n')),
   ].join('\n');
@@ -47,7 +47,7 @@ export function buildMarkdownExport({
     return [
       `### ${sectionTitle(block.sectionKey)} · ${block.topic}`,
       '',
-      '- 선택안: ' + (selectedOption?.content ?? '선택안 없음'),
+      '- 선택안: ' + sanitizeMultilineContent(selectedOption?.content ?? '선택안 없음'),
       `- 선택 이유: ${block.selectionReason}`,
       `- 신뢰도: ${Math.round(block.confidence * 100)}%`,
       ...(block.conflictLevel !== 'none' ? [`- 충돌 수준: ${conflictLevelLabel(block.conflictLevel)}`] : []),
@@ -90,7 +90,7 @@ function formatAlternativeOptions(options: ProtocolDecisionOption[]) {
   }
 
   return options.flatMap((option) => [
-    `- ${optionTypeLabel(option.optionType)}: ${option.content}`,
+    `- ${optionTypeLabel(option.optionType)}: ${sanitizeMultilineContent(option.content)}`,
     `  - 선택안과 차이: ${option.differenceFromSelected ?? '차이 설명 없음'}`,
     ...(option.severity ? [`  - 심각도: ${severityLabel(option.severity)}`] : []),
   ]);
@@ -101,7 +101,7 @@ function formatOptionSources(
   ideasById: Map<string, PlanMergeAnalysisResult['normalizedIdeas'][number]>,
 ) {
   return [
-    `- ${optionTypeLabel(option.optionType)} 출처: ${option.content}`,
+    `- ${optionTypeLabel(option.optionType)}: ${truncateInlineText(option.content, 40)}`,
     ...option.sourceIdeaIds.map((ideaId) => {
       const idea = ideasById.get(ideaId);
 
@@ -160,4 +160,30 @@ function severityLabel(severity: NonNullable<ProtocolDecisionOption['severity']>
 
 function normalizeInlineText(text: string) {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+function sanitizeMultilineContent(text: string) {
+  return text
+    .split('\n')
+    .map((line) => {
+      const lineContent = line.endsWith('\r') ? line.slice(0, -1) : line;
+      const lineEnding = line.endsWith('\r') ? '\r' : '';
+
+      if (lineContent.startsWith('#') || /^[-=_]{3,}$/.test(lineContent)) {
+        return `\\${lineContent}${lineEnding}`;
+      }
+
+      return line;
+    })
+    .join('\n');
+}
+
+function truncateInlineText(text: string, maxLength: number) {
+  const normalized = normalizeInlineText(text);
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}…`;
 }

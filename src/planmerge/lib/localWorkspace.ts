@@ -50,6 +50,7 @@ export type LocalWorkspaceState = {
   project: ProjectSettings;
   drafts: LocalDraftSubmission[];
   analysisResult?: PlanMergeAnalysisResult;
+  approvedBlockIds?: string[];
   decisionLogs: LocalDecisionLog[];
 };
 
@@ -356,6 +357,20 @@ function sanitizeAnalysisResult(
   return validation.valid ? value as unknown as PlanMergeAnalysisResult : undefined;
 }
 
+function sanitizeApprovedBlockIds(value: unknown, analysisResult?: PlanMergeAnalysisResult) {
+  if (!Array.isArray(value) || !analysisResult) {
+    return [];
+  }
+
+  const validBlockIds = new Set(analysisResult.decisionBlocks.map((block) => block.id));
+  const approvedBlockIds = value
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim())
+    .filter((blockId) => validBlockIds.has(blockId));
+
+  return [...new Set(approvedBlockIds)];
+}
+
 export function createDraftSubmission(input: DraftFormInput, existingDraftCount: number): LocalDraftSubmission {
   return {
     ...input,
@@ -390,12 +405,14 @@ export function loadWorkspaceState(): LocalWorkspaceState {
     const storedDrafts = Array.isArray(parsedState.drafts)
       ? parsedState.drafts.filter(isValidDraft)
       : [];
+    const analysisResult = sanitizeAnalysisResult(parsedState.analysisResult, project, storedDrafts);
 
     return {
       analysisRunId,
       project,
       drafts: storedDrafts,
-      analysisResult: sanitizeAnalysisResult(parsedState.analysisResult, project, storedDrafts),
+      analysisResult,
+      approvedBlockIds: sanitizeApprovedBlockIds(parsedState.approvedBlockIds, analysisResult),
       decisionLogs: (Array.isArray(parsedState.decisionLogs) ? parsedState.decisionLogs : [])
         .filter(isValidDecisionLog)
         .map((log) => ({
@@ -490,6 +507,7 @@ export function parseWorkspaceImport(rawText: string): WorkspaceImportResult {
   }
 
   const analysisResult = sanitizeAnalysisResult(workspace.analysisResult, project, drafts);
+  const approvedBlockIds = sanitizeApprovedBlockIds(workspace.approvedBlockIds, analysisResult);
 
   if (workspace.analysisResult !== undefined && !analysisResult) {
     warnings.push('분석 결과가 형식 검증에 실패해 제외했습니다. 다시 분석을 실행해 주세요.');
@@ -502,6 +520,7 @@ export function parseWorkspaceImport(rawText: string): WorkspaceImportResult {
       project,
       drafts,
       analysisResult,
+      approvedBlockIds,
       decisionLogs: decisionLogs.map((log) => ({
         ...log,
         analysisRunId: log.analysisRunId ?? analysisRunId,

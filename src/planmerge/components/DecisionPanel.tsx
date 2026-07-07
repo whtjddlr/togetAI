@@ -20,7 +20,7 @@ import {
   loadOpinionClusterState,
   saveOpinionClusterState,
 } from '../lib/ai/opinionClustering';
-import type { OpinionClusteringResult } from '../lib/ai/opinionClustering';
+import type { OpinionClusteringResult, OpinionClusterStateScope } from '../lib/ai/opinionClustering';
 import {
   fetchBlockParticipation,
   submitSharedOpinion,
@@ -383,6 +383,9 @@ export function DecisionPanel({
     useState<Record<string, SharedParticipation>>({});
   const [sharedActionPending, setSharedActionPending] = useState(false);
   const sharedParticipation = sharedParticipationByBlock[trace.decisionBlockId] ?? null;
+  const clusterStorageScope: OpinionClusterStateScope = sharedWorkspaceId
+    ? `shared:${sharedWorkspaceId}`
+    : 'local';
 
   const applySharedParticipation = (decisionBlockId: string, participation: SharedParticipation) => {
     setSharedParticipationByBlock((current) => ({
@@ -390,7 +393,8 @@ export function DecisionPanel({
       [decisionBlockId]: participation,
     }));
   };
-  const [clusterResults, setClusterResults] = useState(() => loadOpinionClusterState(analysisRunId));
+  const [clusterResults, setClusterResults] = useState(() =>
+    loadOpinionClusterState(analysisRunId, clusterStorageScope));
   const [clusterLoadingByBlock, setClusterLoadingByBlock] = useState<Record<string, boolean>>({});
   const [draftOpinions, setDraftOpinions] = useState<Record<string, string>>({});
 
@@ -413,8 +417,8 @@ export function DecisionPanel({
   }, [sharedWorkspaceId, participationState]);
 
   useEffect(() => {
-    saveOpinionClusterState(clusterResults);
-  }, [clusterResults]);
+    saveOpinionClusterState(clusterResults, clusterStorageScope);
+  }, [clusterResults, clusterStorageScope]);
 
   useEffect(() => {
     if (!sharedWorkspaceId) {

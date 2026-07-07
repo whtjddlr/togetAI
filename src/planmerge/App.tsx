@@ -32,13 +32,13 @@ import {
   type ProtocolDecisionBlock,
   type ProtocolDecisionOption,
 } from './lib/ai/planmergeProtocol';
+import type { DocumentSectionData } from './data/mergeResult';
 
 type AnalysisStatus = 'idle' | 'analyzing' | 'completed';
 
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>('setup');
   const [activeSection, setActiveSection] = useState(7);
-  const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved'>('pending');
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
   const [workspaceState, setWorkspaceState] = useState(defaultWorkspaceState);
   const [hasLoadedWorkspace, setHasLoadedWorkspace] = useState(false);
@@ -52,6 +52,15 @@ export default function App() {
     [workspaceState.analysisResult, workspaceState.drafts],
   );
   const selectedSection = mergeSections.find((section) => section.number === activeSection) ?? mergeSections[0];
+  const activeSectionBlockIds = useMemo(() => getSectionDecisionBlockIds(selectedSection), [selectedSection]);
+  const approvalStatus = useMemo(() => {
+    const approvedBlockIds = new Set(workspaceState.approvedBlockIds ?? []);
+
+    return activeSectionBlockIds.length > 0 &&
+      activeSectionBlockIds.every((blockId) => approvedBlockIds.has(blockId))
+      ? 'approved'
+      : 'pending';
+  }, [activeSectionBlockIds, workspaceState.approvedBlockIds]);
   const displayedIdeaCount = workspaceState.analysisResult?.normalizedIdeas.length
     ?? mergeSections.filter((section) => section.content.trim()).length;
   const sampleWorkspace = isSampleWorkspaceState(workspaceState);
@@ -178,7 +187,15 @@ export default function App() {
       return;
     }
 
-    setApprovalStatus('approved');
+    if (!activeSectionBlockIds.length) {
+      showNotice('승인할 선택안을 찾지 못했습니다.');
+      return;
+    }
+
+    setWorkspaceState((current) => ({
+      ...current,
+      approvedBlockIds: mergeApprovedBlockIds(current.approvedBlockIds, activeSectionBlockIds),
+    }));
     showNotice(`${selectedSection.title} 선택안을 승인했습니다.`);
   };
 
@@ -197,7 +214,6 @@ export default function App() {
     setWorkspaceState(sampleWorkspace);
     setSharedWorkspaceLink(null);
     setSharedWorkspaceId(null);
-    setApprovalStatus('pending');
     setAnalysisStatus(sampleWorkspace.analysisResult ? 'completed' : 'idle');
     setActiveSection(7);
     setActiveView('merge');
@@ -207,21 +223,21 @@ export default function App() {
   const submitDraft = (draft: DraftFormInput) => {
     setWorkspaceState((current) => ({
       ...current,
+      approvedBlockIds: [],
       drafts: [
         ...current.drafts,
         createDraftSubmission(draft, current.drafts.length),
       ],
     }));
-    setApprovalStatus('pending');
     showNotice('초안을 저장했습니다. 다시 분석을 실행할 수 있습니다.');
   };
 
   const deleteDraft = (draftId: string) => {
     setWorkspaceState((current) => ({
       ...current,
+      approvedBlockIds: [],
       drafts: current.drafts.filter((draft) => draft.id !== draftId),
     }));
-    setApprovalStatus('pending');
     showNotice('초안을 삭제했습니다. 다시 분석을 실행할 수 있습니다.');
   };
 
@@ -241,7 +257,6 @@ export default function App() {
       drafts: workspaceState.drafts,
     };
 
-    setApprovalStatus('pending');
     setAnalysisStatus('analyzing');
     showNotice('병합 분석을 실행합니다.');
 
@@ -258,6 +273,7 @@ export default function App() {
         status: draft.rawText.trim() ? 'parsed' : draft.status,
       })),
       analysisResult,
+      approvedBlockIds: [],
       decisionLogs: [],
     }));
     setAnalysisStatus('completed');
@@ -346,7 +362,6 @@ export default function App() {
 
     setWorkspaceState(result.state);
     setSharedWorkspaceLink(null);
-    setApprovalStatus('pending');
     setAnalysisStatus(result.state.analysisResult ? 'completed' : 'idle');
     setActiveView('merge');
     setActiveSection(7);
@@ -388,13 +403,13 @@ export default function App() {
       return {
         ...current,
         analysisResult: applyDecisionOptionOverride(current.analysisResult, decisionBlockId, optionId),
+        approvedBlockIds: (current.approvedBlockIds ?? []).filter((blockId) => blockId !== decisionBlockId),
         decisionLogs: [
           ...current.decisionLogs,
           createDecisionOverrideLog(current.analysisRunId, block, beforeOption, targetOption),
         ],
       };
     });
-    setApprovalStatus('pending');
     showNotice('선택안을 변경하고 최종 문서 섹션에 반영했습니다.');
   };
 
@@ -472,7 +487,7 @@ export default function App() {
             localStorage에 저장돼 기존 투표/의견을 덮어쓴다. */}
         {hasLoadedWorkspace && (
           <DecisionPanel
-            key={workspaceState.analysisRunId}
+            key={`${sharedWorkspaceId ?? 'local'}:${workspaceState.analysisRunId}`}
             selectedSection={selectedSection}
             analysisRunId={workspaceState.analysisRunId}
             sharedWorkspaceId={sharedWorkspaceId}
@@ -689,6 +704,24 @@ function createProjectSettingsKey(project: ProjectSettings) {
     project.forbiddenDirection,
     project.outputStyle,
   ].join('|');
+}
+
+function getSectionDecisionBlockIds(section: DocumentSectionData | undefined) {
+  if (!section) {
+    return [];
+  }
+
+  const traces = section.decisionTraces?.length
+    ? section.decisionTraces
+    : section.decisionTrace
+      ? [section.decisionTrace]
+      : [];
+
+  return traces.map((trace) => trace.decisionBlockId);
+}
+
+function mergeApprovedBlockIds(currentBlockIds: string[] | undefined, nextBlockIds: string[]) {
+  return [...new Set([...(currentBlockIds ?? []), ...nextBlockIds])];
 }
 
 function AnalysisLoadingView({ draftCount }: { draftCount: number }) {

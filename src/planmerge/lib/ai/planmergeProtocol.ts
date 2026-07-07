@@ -899,6 +899,9 @@ export function runLocalPlanMergeHarness(payload: PlanMergeAnalysisPayload): Pla
 function createLocalNormalizedIdea(draft: LocalDraftSubmission, index: number): NormalizedIdea {
   const sectionKey = inferSectionKey(`${draft.taskTitle} ${draft.rawText}`);
   const excerpt = draft.rawText.slice(0, 180);
+  const trimmedRawText = draft.rawText.trim();
+  // 원문 근거가 40자 미만이면 빈약한 증거로 보고 낮은 신뢰도를 부여한다.
+  const confidence = trimmedRawText.length < 40 ? 0.58 : 0.72;
 
   return {
     id: `idea_${index + 1}`,
@@ -910,7 +913,7 @@ function createLocalNormalizedIdea(draft: LocalDraftSubmission, index: number): 
     ideaType: inferIdeaType(sectionKey),
     normalizedText: normalizeSentence(excerpt),
     intent: inferIntent(sectionKey, draft.rawText),
-    confidence: 0.72,
+    confidence,
   };
 }
 

@@ -18,6 +18,13 @@ const initialForm: DraftFormInput = {
   rawText: '',
 };
 
+const MAX_DRAFT_COUNT = 30;
+const MAX_DRAFT_RAW_TEXT_LENGTH = 50000;
+const DRAFT_RAW_TEXT_COUNTER_THRESHOLD = 45000;
+const MAX_AUTHOR_NAME_LENGTH = 80;
+const MAX_AUTHOR_ROLE_LENGTH = 80;
+const MAX_TASK_TITLE_LENGTH = 160;
+
 export function DraftSubmitPage({
   analysisStatus,
   drafts,
@@ -27,6 +34,9 @@ export function DraftSubmitPage({
 }: DraftSubmitPageProps) {
   const [form, setForm] = useState<DraftFormInput>(initialForm);
   const canAnalyze = drafts.length > 0 && analysisStatus !== 'analyzing';
+  const draftLimitReached = drafts.length >= MAX_DRAFT_COUNT;
+  const rawTextLength = form.rawText.length;
+  const canSubmitDraft = Boolean(form.rawText.trim()) && !draftLimitReached;
 
   const updateForm = (field: keyof DraftFormInput, value: string) => {
     setForm((current) => ({
@@ -36,7 +46,7 @@ export function DraftSubmitPage({
   };
 
   const submitDraft = () => {
-    if (!form.rawText.trim()) {
+    if (!canSubmitDraft) {
       return;
     }
 
@@ -63,6 +73,7 @@ export function DraftSubmitPage({
               <span className="mb-2 block text-sm text-gray-700">초안 작성자</span>
               <input
                 value={form.authorName}
+                maxLength={MAX_AUTHOR_NAME_LENGTH}
                 onChange={(event) => updateForm('authorName', event.target.value)}
                 placeholder="예: 수진"
                 className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
@@ -74,6 +85,7 @@ export function DraftSubmitPage({
                 <span className="mb-2 block text-sm text-gray-700">작성자 역할</span>
                 <input
                   value={form.authorRole}
+                  maxLength={MAX_AUTHOR_ROLE_LENGTH}
                   onChange={(event) => updateForm('authorRole', event.target.value)}
                   placeholder="예: PM"
                   className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
@@ -99,6 +111,7 @@ export function DraftSubmitPage({
                 <span className="mb-2 block text-sm text-gray-700">작업 주제</span>
                 <input
                   value={form.taskTitle}
+                  maxLength={MAX_TASK_TITLE_LENGTH}
                   onChange={(event) => updateForm('taskTitle', event.target.value)}
                   placeholder="예: MVP 범위"
                   className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
@@ -110,20 +123,34 @@ export function DraftSubmitPage({
               <span className="mb-2 block text-sm text-gray-700">AI 초안 원문</span>
               <textarea
                 value={form.rawText}
+                maxLength={MAX_DRAFT_RAW_TEXT_LENGTH}
                 onChange={(event) => updateForm('rawText', event.target.value)}
                 placeholder="AI로 생성한 기획서 초안을 붙여넣기"
                 className="min-h-64 w-full rounded-md border border-gray-200 px-3 py-2 text-sm leading-relaxed outline-none focus:border-blue-500"
               />
+              <div className="mt-1 min-h-5 text-xs text-gray-500">
+                {rawTextLength >= DRAFT_RAW_TEXT_COUNTER_THRESHOLD && (
+                  <span>
+                    {rawTextLength.toLocaleString('ko-KR')} / {MAX_DRAFT_RAW_TEXT_LENGTH.toLocaleString('ko-KR')}자
+                  </span>
+                )}
+              </div>
             </label>
+
+            {draftLimitReached && (
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                초안은 최대 {MAX_DRAFT_COUNT}개까지 저장할 수 있습니다. 기존 초안을 삭제한 뒤 추가해 주세요.
+              </p>
+            )}
 
             <button
               type="submit"
               className={`rounded-md px-4 py-2 text-sm text-white ${
-                form.rawText.trim()
+                canSubmitDraft
                   ? 'bg-blue-600 hover:bg-blue-700'
                   : 'cursor-not-allowed bg-gray-300'
               }`}
-              disabled={!form.rawText.trim()}
+              disabled={!canSubmitDraft}
             >
               초안 저장
             </button>
