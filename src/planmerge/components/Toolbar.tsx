@@ -116,7 +116,9 @@ export function Toolbar({
       ? getMergeSubtitle(draftCount, normalizedIdeaCount, hasMergeResult)
       : activeView === 'inspector'
         ? `${draftCount}개의 초안을 기준으로 분석 구조를 검사합니다`
-      : viewCopy[activeView].subtitle,
+        : activeView === 'drafts' && sharedMode
+          ? '공유 워크스페이스에 AI 초안을 제출합니다'
+          : viewCopy[activeView].subtitle,
   };
 
   const runMenuAction = (action: () => void) => {

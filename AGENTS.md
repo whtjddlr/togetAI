@@ -66,6 +66,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ### Next.js 16
 - App Router 전용. 동적 라우트의 `params`는 **Promise**이므로 `await` 해야 한다 — 기존 `src/app/api/workspaces/[workspaceId]/route.ts` 패턴을 따라 한다.
+- 이 리포의 ESLint는 effect 본문에서 동기적으로 `setState`를 호출하면 `react-hooks/set-state-in-effect` 오류로 처리한다. reset/derive 상태는 key, `useSyncExternalStore`, 비동기 콜백 등으로 처리한다.
 - 학습 데이터의 Next.js 지식을 믿지 말고 `node_modules/next/dist/docs/`를 먼저 읽는다.
 
 ### Prisma 7 + Neon

@@ -266,6 +266,23 @@ model SharedWorkspace {
 
   votes    SharedWorkspaceVote[]
   opinions SharedWorkspaceOpinion[]
+  drafts   SharedWorkspaceDraft[]
+}
+
+model SharedWorkspaceDraft {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  authorName   String
+  aiModel      String
+  taskTitle    String
+  rawText      String
+  status       String   @default("pending") // pending | imported | dismissed
+  anonymousKey String
+  createdAt    DateTime @default(now())
+
+  workspace SharedWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, createdAt])
 }
 
 model SharedWorkspaceVote {

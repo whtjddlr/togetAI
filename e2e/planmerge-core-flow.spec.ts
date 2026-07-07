@@ -31,6 +31,7 @@ test.describe.serial('PlanMerge keyless fallback core flow', () => {
     await page.keyboard.press('Escape');
 
     await navigation.getByRole('button', { name: /^초안 입력$/ }).click();
+    await expect(page.getByTestId('shared-drafts-owner-panel')).toHaveCount(0);
     const analysisResponsePromise = page.waitForResponse((response) =>
       response.url().includes('/api/analyze/planmerge') && response.request().method() === 'POST',
     );

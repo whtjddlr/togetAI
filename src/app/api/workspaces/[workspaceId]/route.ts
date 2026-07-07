@@ -1,40 +1,22 @@
-import { Buffer } from 'node:buffer';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import {
   getSharedWorkspaceAccessStatus,
+  isManageTokenMatch,
   isValidWorkspaceId,
+  MANAGE_TOKEN_MAX_LENGTH,
   SHARED_WORKSPACE_UNAVAILABLE_ERROR,
 } from '@/server/sharedWorkspace';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 const REVOKE_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
-const MANAGE_TOKEN_MAX_LENGTH = 256;
-const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 
 type RouteContext = {
   params: Promise<{
     workspaceId: string;
   }>;
 };
-
-function hashManageToken(manageToken: string) {
-  return createHash('sha256').update(manageToken).digest('hex');
-}
-
-function isManageTokenMatch(manageToken: string, manageTokenHash: string | null) {
-  if (!manageTokenHash || !SHA_256_HEX_PATTERN.test(manageTokenHash)) {
-    return false;
-  }
-
-  const actualHash = hashManageToken(manageToken);
-  const expected = Buffer.from(manageTokenHash, 'hex');
-  const actual = Buffer.from(actualHash, 'hex');
-
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
 
 export async function GET(request: Request, context: RouteContext) {
   const rateLimit = await checkRateLimit('workspaces-read', getClientKey(request), RATE_LIMIT);

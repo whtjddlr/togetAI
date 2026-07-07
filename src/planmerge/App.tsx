@@ -66,6 +66,7 @@ import type { DocumentSectionData } from './data/mergeResult';
 type AnalysisStatus = 'idle' | 'analyzing' | 'completed';
 
 const SHARED_READ_ONLY_NOTICE = '공유 보기에서는 사용할 수 없습니다.';
+const MAX_DRAFT_COUNT = 30;
 
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>('setup');
@@ -420,6 +421,30 @@ export default function App() {
     showNotice('초안을 저장했습니다. 다시 분석을 실행할 수 있습니다.');
   };
 
+  const importSharedDraft = (draft: DraftFormInput) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return false;
+    }
+
+    if (workspaceState.drafts.length >= MAX_DRAFT_COUNT) {
+      showNotice(`초안은 최대 ${MAX_DRAFT_COUNT}개까지 저장할 수 있습니다. 기존 초안을 삭제한 뒤 가져오세요.`);
+      return false;
+    }
+
+    setWorkspaceState((current) => ({
+      ...current,
+      approvedBlockIds: [],
+      drafts: [
+        ...current.drafts,
+        createDraftSubmission(draft, current.drafts.length),
+      ],
+    }));
+    showNotice('공유 초안을 로컬 초안으로 가져왔습니다. 다시 분석을 실행할 수 있습니다.');
+
+    return true;
+  };
+
   const deleteDraft = (draftId: string) => {
     if (sharedWorkspaceId) {
       showNotice(SHARED_READ_ONLY_NOTICE);
@@ -698,7 +723,11 @@ export default function App() {
         <DraftSubmitPage
           analysisStatus={analysisStatus}
           drafts={workspaceState.drafts}
+          mode={sharedMode ? 'shared' : 'local'}
+          ownerShareAccess={sharedMode ? null : ownedShareAccess}
+          sharedWorkspaceId={sharedWorkspaceId}
           onDeleteDraft={deleteDraft}
+          onImportSharedDraft={importSharedDraft}
           onRunAnalysis={reanalyze}
           onSubmitDraft={submitDraft}
         />
@@ -827,7 +856,7 @@ export default function App() {
         )}
         {sharedWorkspaceId && (
           <div className="border-b border-blue-100 bg-blue-50 px-8 py-2 text-sm text-blue-800">
-            공유된 워크스페이스를 보고 있습니다. 투표와 의견만 반영됩니다.
+            공유된 워크스페이스를 보고 있습니다. 투표·의견·초안 제출만 반영됩니다.
           </div>
         )}
         {effectiveActiveView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && !sampleWorkspace && (
@@ -978,7 +1007,7 @@ function removeSharedWorkspaceIdFromUrl() {
 }
 
 function isSharedRestrictedView(view: AppView) {
-  return view === 'setup' || view === 'drafts';
+  return view === 'setup';
 }
 
 function createDecisionOverrideLog(

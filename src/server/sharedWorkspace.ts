@@ -1,11 +1,35 @@
+import { Buffer } from 'node:buffer';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { getDb } from './db';
 
 const WORKSPACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 
 export const SHARED_WORKSPACE_UNAVAILABLE_ERROR = '공유 링크가 만료되었거나 회수되었습니다.';
+export const MANAGE_TOKEN_MAX_LENGTH = 256;
 
 export function isValidWorkspaceId(value: string) {
   return WORKSPACE_ID_PATTERN.test(value);
+}
+
+export function hashManageToken(manageToken: string) {
+  return createHash('sha256').update(manageToken).digest('hex');
+}
+
+export function isManageTokenMatch(manageToken: string, manageTokenHash: string | null) {
+  if (
+    manageToken.length > MANAGE_TOKEN_MAX_LENGTH ||
+    !manageTokenHash ||
+    !SHA_256_HEX_PATTERN.test(manageTokenHash)
+  ) {
+    return false;
+  }
+
+  const actualHash = hashManageToken(manageToken);
+  const expected = Buffer.from(manageTokenHash, 'hex');
+  const actual = Buffer.from(actualHash, 'hex');
+
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 export function readRequiredString(value: unknown, maxLength: number) {
