@@ -18,15 +18,22 @@ DIRECT_URL="postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/neondb?sslmode=
 
 ```bash
 npx prisma validate
-npx prisma migrate dev --name init
+npx prisma db push
 npx prisma generate
 ```
 
 The current Prisma config reads `DIRECT_URL` first, then falls back to `DATABASE_URL`.
 
+## Applying schema changes
+
+Production schema changes are applied with `npx prisma db push` before the code
+that depends on the new columns is deployed. The shared-link expiry/revoke change
+adds nullable `SharedWorkspace.expiresAt`, `SharedWorkspace.revokedAt`, and
+`SharedWorkspace.manageTokenHash` columns so legacy rows can keep loading.
+
 ## Shared workspace feature
 
 `DATABASE_URL`이 설정되어 있으면 앱의 "팀 공유 링크 만들기" 기능이 활성화됩니다.
-스키마를 반영하려면 위의 `prisma migrate dev`를 실행하세요 (SharedWorkspace,
+스키마를 반영하려면 위의 `prisma db push`를 실행하세요 (SharedWorkspace,
 SharedWorkspaceVote, SharedWorkspaceOpinion 테이블이 생성됩니다). DB가 없으면
 공유 API는 503을 반환하고 앱은 localStorage 모드로 동작합니다.

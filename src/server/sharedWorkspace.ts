@@ -2,6 +2,8 @@ import { getDb } from './db';
 
 const WORKSPACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export const SHARED_WORKSPACE_UNAVAILABLE_ERROR = '공유 링크가 만료되었거나 회수되었습니다.';
+
 export function isValidWorkspaceId(value: string) {
   return WORKSPACE_ID_PATTERN.test(value);
 }
@@ -26,14 +28,40 @@ export type SharedBlockParticipation = {
   }>;
 };
 
-export async function findSharedWorkspaceId(workspaceId: string) {
+type SharedWorkspaceAccessRow = {
+  id: string;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+};
+
+export type SharedWorkspaceAccessStatus = 'active' | 'not_found' | 'expired_or_revoked';
+
+export function getSharedWorkspaceAccessStatus(
+  workspace: SharedWorkspaceAccessRow | null | undefined,
+  now = new Date(),
+): SharedWorkspaceAccessStatus {
+  if (!workspace) {
+    return 'not_found';
+  }
+
+  if (
+    workspace.revokedAt ||
+    (workspace.expiresAt && workspace.expiresAt.getTime() <= now.getTime())
+  ) {
+    return 'expired_or_revoked';
+  }
+
+  return 'active';
+}
+
+export async function findSharedWorkspaceAccessStatus(workspaceId: string) {
   const db = getDb();
   const workspace = await db.sharedWorkspace.findUnique({
     where: { id: workspaceId },
-    select: { id: true },
+    select: { id: true, expiresAt: true, revokedAt: true },
   });
 
-  return workspace?.id;
+  return getSharedWorkspaceAccessStatus(workspace);
 }
 
 export type SharedDecisionBlockTarget =
@@ -42,7 +70,7 @@ export type SharedDecisionBlockTarget =
     votableOptionIds: string[];
   }
   | {
-    status: 'workspace_not_found' | 'invalid_decision_block';
+    status: 'workspace_not_found' | 'workspace_expired_or_revoked' | 'invalid_decision_block';
   };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -119,11 +147,15 @@ export async function getSharedDecisionBlockTarget(
   const db = getDb();
   const workspace = await db.sharedWorkspace.findUnique({
     where: { id: workspaceId },
-    select: { id: true, snapshot: true },
+    select: { id: true, snapshot: true, expiresAt: true, revokedAt: true },
   });
 
   if (!workspace) {
     return { status: 'workspace_not_found' };
+  }
+
+  if (getSharedWorkspaceAccessStatus(workspace) === 'expired_or_revoked') {
+    return { status: 'workspace_expired_or_revoked' };
   }
 
   const votableOptionIds = findDecisionBlockOptionIds(workspace.snapshot, decisionBlockId);

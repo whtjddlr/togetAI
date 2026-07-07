@@ -57,7 +57,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - [ ] `npm run lint` 통과
 - [ ] `npm run harness:quality` 9/9 통과 (프로토콜·검증기·프롬프트를 건드렸다면 새 케이스 추가 여부 확인)
 - [ ] `npm run build` 통과 — **환경변수 없이** (GMS/DB 키가 빌드 필수가 되면 안 됨)
-- [ ] `prisma/schema.prisma` 변경 시: 마이그레이션 생성(`DIRECT_URL` 필요), `docs/neon-setup.md` 갱신
+- [ ] `prisma/schema.prisma` 변경 시: 배포 전에 `npx prisma db push`로 DB 반영, `docs/neon-setup.md` 갱신
 - [ ] 시크릿·API 키가 diff에 없는지 확인
 - [ ] 사용자 노출 문자열은 기존과 같이 한국어
 - [ ] AI 프로토콜/프롬프트 변경 시: [제품 에이전트 매뉴얼](docs/planmerge-product-agent-manual.md)의 공통 5원칙과 해당 [역할 지침서](docs/agents/)의 규칙 위반 여부 확인
@@ -70,7 +70,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ### Prisma 7 + Neon
 - 런타임은 `@prisma/adapter-neon`(serverless driver) 경유 — `src/server/db.ts`의 `getDb()` 싱글턴만 사용한다.
-- `DATABASE_URL`(pooled)은 런타임, `DIRECT_URL`(direct)은 Prisma CLI/마이그레이션용. `prisma.config.ts` 참고.
+- `DATABASE_URL`(pooled)은 런타임, `DIRECT_URL`(direct)은 Prisma CLI/db push용. `prisma.config.ts` 참고.
+- 스키마 변경은 마이그레이션 파일 없이 `npx prisma db push`로 적용하며, 새 컬럼을 쓰는 코드 배포 전에 운영 DB에 먼저 반영해야 한다.
 - DB 미설정 환경이 정상 상태다: API는 `isDatabaseConfigured()`로 가드하고 503을 반환한다. 새 API도 같은 패턴을 지킨다.
 
 ### GMS API

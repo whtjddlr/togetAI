@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { isDatabaseConfigured } from '@/server/db';
 import {
-  findSharedWorkspaceId,
+  findSharedWorkspaceAccessStatus,
   getBlockParticipation,
   isValidWorkspaceId,
   readRequiredString,
+  SHARED_WORKSPACE_UNAVAILABLE_ERROR,
 } from '@/server/sharedWorkspace';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
@@ -48,8 +49,14 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    if (!(await findSharedWorkspaceId(workspaceId))) {
+    const accessStatus = await findSharedWorkspaceAccessStatus(workspaceId);
+
+    if (accessStatus === 'not_found') {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
+    }
+
+    if (accessStatus === 'expired_or_revoked') {
+      return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
     }
 
     return NextResponse.json(await getBlockParticipation(workspaceId, decisionBlockId, anonymousKey));

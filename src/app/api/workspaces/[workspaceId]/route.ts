@@ -1,15 +1,40 @@
+import { Buffer } from 'node:buffer';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { getDb, isDatabaseConfigured } from '@/server/db';
-import { isValidWorkspaceId } from '@/server/sharedWorkspace';
+import {
+  getSharedWorkspaceAccessStatus,
+  isValidWorkspaceId,
+  SHARED_WORKSPACE_UNAVAILABLE_ERROR,
+} from '@/server/sharedWorkspace';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
+const REVOKE_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
+const MANAGE_TOKEN_MAX_LENGTH = 256;
+const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 
 type RouteContext = {
   params: Promise<{
     workspaceId: string;
   }>;
 };
+
+function hashManageToken(manageToken: string) {
+  return createHash('sha256').update(manageToken).digest('hex');
+}
+
+function isManageTokenMatch(manageToken: string, manageTokenHash: string | null) {
+  if (!manageTokenHash || !SHA_256_HEX_PATTERN.test(manageTokenHash)) {
+    return false;
+  }
+
+  const actualHash = hashManageToken(manageToken);
+  const expected = Buffer.from(manageTokenHash, 'hex');
+  const actual = Buffer.from(actualHash, 'hex');
+
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
 
 export async function GET(request: Request, context: RouteContext) {
   const rateLimit = await checkRateLimit('workspaces-read', getClientKey(request), RATE_LIMIT);
@@ -37,11 +62,15 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const workspace = await getDb().sharedWorkspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, title: true, snapshot: true },
+      select: { id: true, title: true, snapshot: true, expiresAt: true, revokedAt: true },
     });
 
     if (!workspace) {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
+    }
+
+    if (getSharedWorkspaceAccessStatus(workspace) === 'expired_or_revoked') {
+      return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
     }
 
     return NextResponse.json({
@@ -54,6 +83,73 @@ export async function GET(request: Request, context: RouteContext) {
 
     return NextResponse.json(
       { errors: ['공유 워크스페이스 조회에 실패했습니다.'] },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request, context: RouteContext) {
+  const rateLimit = await checkRateLimit('workspace-revoke', getClientKey(request), REVOKE_RATE_LIMIT);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { errors: ['공유 링크 회수 요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.'] },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+    );
+  }
+
+  if (!isDatabaseConfigured()) {
+    return NextResponse.json(
+      { errors: ['데이터베이스가 설정되지 않아 공유 기능을 사용할 수 없습니다.'] },
+      { status: 503 },
+    );
+  }
+
+  const { workspaceId } = await context.params;
+
+  if (!isValidWorkspaceId(workspaceId)) {
+    return NextResponse.json({ errors: ['잘못된 워크스페이스 ID입니다.'] }, { status: 400 });
+  }
+
+  try {
+    const workspace = await getDb().sharedWorkspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, expiresAt: true, revokedAt: true, manageTokenHash: true },
+    });
+
+    if (!workspace) {
+      return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
+    }
+
+    if (getSharedWorkspaceAccessStatus(workspace) === 'expired_or_revoked') {
+      return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
+    }
+
+    const manageToken = request.headers.get('x-manage-token')?.trim();
+
+    if (
+      !manageToken ||
+      manageToken.length > MANAGE_TOKEN_MAX_LENGTH ||
+      !isManageTokenMatch(manageToken, workspace.manageTokenHash)
+    ) {
+      return NextResponse.json(
+        { errors: ['공유 링크를 회수할 권한이 없습니다.'] },
+        { status: 401 },
+      );
+    }
+
+    await getDb().sharedWorkspace.update({
+      where: { id: workspaceId },
+      data: { revokedAt: new Date() },
+      select: { id: true },
+    });
+
+    return NextResponse.json({ revoked: true });
+  } catch (error) {
+    console.error('[workspaces] revoke failed:', error);
+
+    return NextResponse.json(
+      { errors: ['공유 링크 회수에 실패했습니다.'] },
       { status: 500 },
     );
   }

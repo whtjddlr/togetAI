@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StatusBadge } from './StatusBadge';
 import { getDecisionTrace } from '../data/mergeResult';
 import type { AnonymousOpinion, DecisionOpinion, DecisionTrace, DocumentSectionData } from '../data/mergeResult';
@@ -23,6 +23,7 @@ import {
 import type { OpinionClusteringResult, OpinionClusterStateScope } from '../lib/ai/opinionClustering';
 import {
   fetchBlockParticipation,
+  SHARED_LINK_UNAVAILABLE_MESSAGE,
   submitSharedOpinion,
   submitSharedVote,
 } from '../lib/sharedWorkspaceClient';
@@ -383,17 +384,19 @@ export function DecisionPanel({
   const [sharedParticipationByBlock, setSharedParticipationByBlock] =
     useState<Record<string, SharedParticipation>>({});
   const [sharedActionPending, setSharedActionPending] = useState(false);
+  const [sharedActionError, setSharedActionError] = useState<string | null>(null);
   const sharedParticipation = sharedParticipationByBlock[trace.decisionBlockId] ?? null;
   const clusterStorageScope: OpinionClusterStateScope = sharedWorkspaceId
     ? `shared:${sharedWorkspaceId}`
     : 'local';
 
-  const applySharedParticipation = (decisionBlockId: string, participation: SharedParticipation) => {
+  const applySharedParticipation = useCallback((decisionBlockId: string, participation: SharedParticipation) => {
+    setSharedActionError(null);
     setSharedParticipationByBlock((current) => ({
       ...current,
       [decisionBlockId]: participation,
     }));
-  };
+  }, []);
   const [clusterResults, setClusterResults] = useState(() =>
     loadOpinionClusterState(analysisRunId, clusterStorageScope));
   const [clusterLoadingByBlock, setClusterLoadingByBlock] = useState<Record<string, boolean>>({});
@@ -430,24 +433,27 @@ export function DecisionPanel({
     const decisionBlockId = trace.decisionBlockId;
 
     void (async () => {
-      const participation = await fetchBlockParticipation(
-        sharedWorkspaceId,
-        decisionBlockId,
-        anonymousClientId,
-      );
+      try {
+        const participation = await fetchBlockParticipation(
+          sharedWorkspaceId,
+          decisionBlockId,
+          anonymousClientId,
+        );
 
-      if (!cancelled && participation) {
-        setSharedParticipationByBlock((current) => ({
-          ...current,
-          [decisionBlockId]: participation,
-        }));
+        if (!cancelled && participation) {
+          applySharedParticipation(decisionBlockId, participation);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSharedActionError(error instanceof Error ? error.message : SHARED_LINK_UNAVAILABLE_MESSAGE);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [sharedWorkspaceId, trace.decisionBlockId, anonymousClientId]);
+  }, [sharedWorkspaceId, trace.decisionBlockId, anonymousClientId, applySharedParticipation]);
 
   const handleVote = (optionId: string) => {
     if (sharedWorkspaceId) {
@@ -455,17 +461,23 @@ export function DecisionPanel({
         return;
       }
 
+      const decisionBlockId = trace.decisionBlockId;
+
       setSharedActionPending(true);
       void (async () => {
-        const participation = await submitSharedVote(
-          sharedWorkspaceId,
-          trace.decisionBlockId,
-          optionId,
-          anonymousClientId,
-        );
+        try {
+          const participation = await submitSharedVote(
+            sharedWorkspaceId,
+            decisionBlockId,
+            optionId,
+            anonymousClientId,
+          );
 
-        if (participation) {
-          applySharedParticipation(trace.decisionBlockId, participation);
+          if (participation) {
+            applySharedParticipation(decisionBlockId, participation);
+          }
+        } catch (error) {
+          setSharedActionError(error instanceof Error ? error.message : SHARED_LINK_UNAVAILABLE_MESSAGE);
         }
 
         setSharedActionPending(false);
@@ -512,18 +524,24 @@ export function DecisionPanel({
         return;
       }
 
+      const decisionBlockId = trace.decisionBlockId;
+
       setSharedActionPending(true);
       void (async () => {
-        const participation = await submitSharedOpinion(
-          sharedWorkspaceId,
-          trace.decisionBlockId,
-          content,
-          anonymousClientId,
-        );
+        try {
+          const participation = await submitSharedOpinion(
+            sharedWorkspaceId,
+            decisionBlockId,
+            content,
+            anonymousClientId,
+          );
 
-        if (participation) {
-          applySharedParticipation(trace.decisionBlockId, participation);
-          clearDraft();
+          if (participation) {
+            applySharedParticipation(decisionBlockId, participation);
+            clearDraft();
+          }
+        } catch (error) {
+          setSharedActionError(error instanceof Error ? error.message : SHARED_LINK_UNAVAILABLE_MESSAGE);
         }
 
         setSharedActionPending(false);
@@ -646,6 +664,12 @@ export function DecisionPanel({
           shared={Boolean(sharedWorkspaceId)}
           onVote={handleVote}
         />
+
+        {sharedWorkspaceId && sharedActionError && (
+          <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
+            {sharedActionError}
+          </div>
+        )}
 
         <OpinionClusterPanel
           clusterResult={decisionClusterResult}

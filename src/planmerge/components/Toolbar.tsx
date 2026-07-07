@@ -6,6 +6,7 @@ type ToolbarProps = {
   activeView: AppView;
   approvalStatus: 'pending' | 'approved';
   analysisStatus: 'idle' | 'analyzing' | 'completed';
+  canRevokeSharedWorkspace: boolean;
   draftCount: number;
   hasMergeResult: boolean;
   normalizedIdeaCount: number;
@@ -14,6 +15,7 @@ type ToolbarProps = {
   onExportWorkspace: () => void;
   onImportWorkspace: () => void;
   onReanalyze: () => void;
+  onRevokeSharedWorkspace: () => void;
   onShareWorkspace: () => void;
   onViewChange: (view: AppView) => void;
   projectTitle: string;
@@ -53,6 +55,7 @@ export function Toolbar({
   activeView,
   approvalStatus,
   analysisStatus,
+  canRevokeSharedWorkspace,
   draftCount,
   hasMergeResult,
   normalizedIdeaCount,
@@ -61,6 +64,7 @@ export function Toolbar({
   onExportWorkspace,
   onImportWorkspace,
   onReanalyze,
+  onRevokeSharedWorkspace,
   onShareWorkspace,
   onViewChange,
   projectTitle,
@@ -179,6 +183,15 @@ export function Toolbar({
                   onClick={() => runMenuAction(onShareWorkspace)}
                 >
                   팀 공유 링크 만들기
+                </button>
+              )}
+              {canRevokeSharedWorkspace && (
+                <button
+                  type="button"
+                  className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                  onClick={() => runMenuAction(onRevokeSharedWorkspace)}
+                >
+                  공유 링크 회수
                 </button>
               )}
               <button
