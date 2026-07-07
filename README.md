@@ -245,6 +245,8 @@ npm run dev
 | `GMS_DEFAULT_MODEL` | 기본 분석 모델 | `gpt-4.1` |
 | `DATABASE_URL` | Next.js runtime용 Neon pooled connection | 공유 기능 비활성화 |
 | `DIRECT_URL` | Prisma migrate용 Neon direct connection | `DATABASE_URL` fallback |
+| `UPSTASH_REDIS_REST_URL` | 분산 rate limit용 Upstash Redis REST URL | 인메모리 rate limit fallback |
+| `UPSTASH_REDIS_REST_TOKEN` | 분산 rate limit용 Upstash Redis REST 토큰 | 인메모리 rate limit fallback |
 
 Neon 연결 방법은 [docs/neon-setup.md](docs/neon-setup.md)를 참고합니다.
 

@@ -8,7 +8,7 @@ const RATE_LIMIT = { limit: 5, windowMs: 60_000 };
 const MAX_SNAPSHOT_CHARS = 1_500_000;
 
 export async function POST(request: Request) {
-  const rateLimit = checkRateLimit('workspaces-create', getClientKey(request), RATE_LIMIT);
+  const rateLimit = await checkRateLimit('workspaces-create', getClientKey(request), RATE_LIMIT);
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

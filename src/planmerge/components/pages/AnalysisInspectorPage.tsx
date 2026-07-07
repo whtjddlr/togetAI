@@ -432,7 +432,11 @@ function DecisionLogsTab({ decisionLogs }: { decisionLogs: LocalDecisionLog[] })
   return (
     <div className="space-y-3">
       {orderedLogs.map((log) => (
-        <div key={log.id} className="rounded-md border border-gray-200 p-4">
+        <div
+          key={log.id}
+          data-testid="decision-log-entry"
+          className="rounded-md border border-gray-200 p-4"
+        >
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="text-sm text-gray-900">{log.sectionTitle} · {log.topic}</div>

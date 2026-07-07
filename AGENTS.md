@@ -35,7 +35,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - `src/planmerge/lib/analysisQuality.ts` — 품질 점수/게이트 (`ready ≥80 / review ≥55 / blocked`).
 - `src/planmerge/lib/ai/opinionClustering.ts` — 익명 의견 클러스터링 (프롬프트 + 검증 + 로컬 폴백).
 - `src/planmerge/lib/localWorkspace.ts` — localStorage 워크스페이스 상태, 샘플 데이터, import 검증.
-- `src/server/` — Prisma 싱글턴(`db.ts`), 인메모리 rate limit(`rateLimit.ts`), 공유 워크스페이스 집계(`sharedWorkspace.ts`).
+- `src/server/` — Prisma 싱글턴(`db.ts`), Upstash/인메모리 fallback rate limit(`rateLimit.ts`), 공유 워크스페이스 집계(`sharedWorkspace.ts`).
 - `src/app/api/workspaces/**` — 스냅샷 공유/투표/의견/참여 집계 API. 정규화 테이블(Project~DecisionBlock)은 스키마에만 있고 아직 미사용.
 - `scripts/run-planmerge-quality-cases.ts` — 회귀 케이스 9개 정의.
 
@@ -80,7 +80,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - 호출 비용이 크므로(초안 수만큼 병렬 호출) rate limit(`analyze` 5회/분)을 완화하지 않는다.
 
 ### Rate limit
-- `src/server/rateLimit.ts`는 인메모리 fixed-window — 서버리스 인스턴스별로만 유효한 임시 방어다. 이를 전제로 한 보안 로직을 추가하지 말 것(실무 전환 시 Redis/Upstash로 교체 예정).
+- `src/server/rateLimit.ts`는 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`이 있으면 Upstash Redis REST fixed-window를 사용하고, 없거나 호출 실패 시 인메모리 fixed-window로 fallback한다. Rate limit 오류로 제품이 중단되면 안 되므로 Upstash 실패는 로그만 남기고 fail-open fallback한다.
 
 ## 환경변수
 
@@ -91,3 +91,5 @@ This version has breaking changes — APIs, conventions, and file structure may 
 | `GMS_DEFAULT_MODEL` / `MODEL_NAME` | 모델명 | `gpt-4.1` |
 | `DATABASE_URL` | Neon pooled (런타임) | 공유 기능 503, localStorage 모드 |
 | `DIRECT_URL` | Neon direct (마이그레이션) | `DATABASE_URL`로 폴백 |
+| `UPSTASH_REDIS_REST_URL` | 분산 rate limit용 Upstash Redis REST URL | 인메모리 rate limit fallback |
+| `UPSTASH_REDIS_REST_TOKEN` | 분산 rate limit용 Upstash Redis REST 토큰 | 인메모리 rate limit fallback |

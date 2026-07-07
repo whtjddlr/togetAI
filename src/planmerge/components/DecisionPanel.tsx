@@ -354,6 +354,7 @@ function ApplyOptionButton({
   return (
     <button
       type="button"
+      data-testid="apply-decision-option"
       className="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-xs text-gray-700 transition-colors hover:bg-gray-50"
       onClick={() => onApplyDecisionOption(decisionBlockId, optionId)}
     >
@@ -579,7 +580,10 @@ export function DecisionPanel({
   };
 
   return (
-    <div className="w-full flex-shrink-0 border-t border-gray-200 bg-white xl:h-full xl:min-h-0 xl:w-96 xl:overflow-y-auto xl:border-l xl:border-t-0">
+    <div
+      data-testid="decision-panel"
+      className="w-full flex-shrink-0 border-t border-gray-200 bg-white xl:h-full xl:min-h-0 xl:w-96 xl:overflow-y-auto xl:border-l xl:border-t-0"
+    >
       <div className="p-6 border-b border-gray-100 sticky top-0 bg-white">
         <h2 className="text-base text-gray-900">선택 과정</h2>
         <div className="mt-1 text-xs text-gray-500">

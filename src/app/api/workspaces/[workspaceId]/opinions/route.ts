@@ -17,7 +17,7 @@ type RouteContext = {
 };
 
 export async function POST(request: Request, context: RouteContext) {
-  const rateLimit = checkRateLimit('workspaces-opinion', getClientKey(request), RATE_LIMIT);
+  const rateLimit = await checkRateLimit('workspaces-opinion', getClientKey(request), RATE_LIMIT);
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

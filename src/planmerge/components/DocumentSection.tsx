@@ -36,6 +36,7 @@ export function DocumentSection({ number, title, content, status, active, onClic
 
   return (
     <div
+      data-testid={`document-section-${number}`}
       onClick={onClick}
       className={`cursor-pointer border-l px-4 py-5 transition-all sm:px-8 sm:py-6 ${
         active
