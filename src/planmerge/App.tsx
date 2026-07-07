@@ -528,7 +528,10 @@ export default function App() {
           onChange={importWorkspaceFile}
         />
         {notice && (
-          <div className="border-b border-emerald-100 bg-emerald-50 px-8 py-2 text-sm text-emerald-800">
+          <div
+            data-testid="app-notice"
+            className="border-b border-emerald-100 bg-emerald-50 px-8 py-2 text-sm text-emerald-800"
+          >
             {notice}
           </div>
         )}
