@@ -1,6 +1,14 @@
 'use client';
 
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
 import { DocumentContent } from './components/DocumentContent';
@@ -11,20 +19,42 @@ import { ProjectSetupPage } from './components/pages/ProjectSetupPage';
 import { AnalysisInspectorPage } from './components/pages/AnalysisInspectorPage';
 import type { AppView } from './types/navigation';
 import {
+  activateWorkspaceEntry,
+  createEmptyWorkspaceState,
   createWorkspaceExport,
+  createWorkspaceEntry,
   createDraftSubmission,
   createSampleWorkspaceState,
-  defaultWorkspaceState,
+  deleteWorkspaceEntry,
+  getServerWorkspaceRegistrySnapshot,
+  getServerWorkspaceStorageFailureNoticeSnapshot,
+  getWorkspaceRegistrySnapshot,
+  getWorkspaceStorageFailureNoticeSnapshot,
   isSampleWorkspaceState,
-  loadWorkspaceState,
+  loadLocalWorkspaceSession,
   parseWorkspaceImport,
+  SAMPLE_WORKSPACE_ID,
   saveWorkspaceState,
+  subscribeWorkspaceRegistry,
+  subscribeWorkspaceStorageFailures,
 } from './lib/localWorkspace';
-import type { DraftFormInput, LocalDecisionLog, ProjectSettings } from './lib/localWorkspace';
+import type {
+  DraftFormInput,
+  LocalDecisionLog,
+  LocalWorkspaceSession,
+  ProjectSettings,
+} from './lib/localWorkspace';
 import { generatePlanMergeAnalysis } from './lib/ai/planmergeAnalysisClient';
-import { createSharedWorkspace, fetchSharedWorkspace, revokeSharedWorkspace } from './lib/sharedWorkspaceClient';
+import {
+  createSharedWorkspace,
+  fetchSharedWorkspace,
+  revokeSharedWorkspace,
+  SharedWorkspaceRequestError,
+  updateSharedWorkspace,
+} from './lib/sharedWorkspaceClient';
 import {
   clearSharedWorkspaceOwnerAccess,
+  loadLegacySharedWorkspaceOwnerAccess,
   loadSharedWorkspaceOwnerAccess,
   saveSharedWorkspaceOwnerAccess,
 } from './lib/sharedWorkspaceOwnerStore';
@@ -42,18 +72,34 @@ import type { DocumentSectionData } from './data/mergeResult';
 
 type AnalysisStatus = 'idle' | 'analyzing' | 'completed';
 
+const SHARED_READ_ONLY_NOTICE = '공유 보기에서는 사용할 수 없습니다.';
+const MAX_DRAFT_COUNT = 30;
+
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>('setup');
   const [activeSection, setActiveSection] = useState(7);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
-  const [workspaceState, setWorkspaceState] = useState(defaultWorkspaceState);
+  const [workspaceState, setWorkspaceState] = useState(createEmptyWorkspaceState);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [hasLoadedWorkspace, setHasLoadedWorkspace] = useState(false);
   const [sharedWorkspaceId, setSharedWorkspaceId] = useState<string | null>(null);
+  const [sharedWorkspaceSnapshotVersion, setSharedWorkspaceSnapshotVersion] = useState<number | null>(null);
   const [sharedWorkspaceLink, setSharedWorkspaceLink] = useState<string | null>(null);
   const [ownedShareAccess, setOwnedShareAccess] = useState<SharedWorkspaceOwnerAccess | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimeoutRef = useRef<number | null>(null);
   const workspaceImportInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceRegistry = useSyncExternalStore(
+    subscribeWorkspaceRegistry,
+    getWorkspaceRegistrySnapshot,
+    getServerWorkspaceRegistrySnapshot,
+  );
+  const storageFailureNotice = useSyncExternalStore(
+    subscribeWorkspaceStorageFailures,
+    getWorkspaceStorageFailureNoticeSnapshot,
+    getServerWorkspaceStorageFailureNoticeSnapshot,
+  );
+  const displayedNotice = storageFailureNotice ?? notice;
   const mergeSections = useMemo(
     () => createDocumentSectionsFromAnalysis(workspaceState.analysisResult, workspaceState.drafts),
     [workspaceState.analysisResult, workspaceState.drafts],
@@ -70,7 +116,12 @@ export default function App() {
   }, [activeSectionBlockIds, workspaceState.approvedBlockIds]);
   const displayedIdeaCount = workspaceState.analysisResult?.normalizedIdeas.length
     ?? mergeSections.filter((section) => section.content.trim()).length;
-  const sampleWorkspace = isSampleWorkspaceState(workspaceState);
+  const sampleWorkspace = activeWorkspaceId === SAMPLE_WORKSPACE_ID || isSampleWorkspaceState(workspaceState);
+  const workspaceScopeKey = sharedWorkspaceId
+    ? `shared:${sharedWorkspaceId}:${sharedWorkspaceSnapshotVersion ?? 1}`
+    : `local:${activeWorkspaceId ?? 'pending'}`;
+  const sharedMode = Boolean(sharedWorkspaceId);
+  const effectiveActiveView = sharedMode && isSharedRestrictedView(activeView) ? 'merge' : activeView;
   const qualityLevel = useMemo<QualityLevel | null>(() => {
     if (!workspaceState.analysisResult) {
       return null;
@@ -94,6 +145,12 @@ export default function App() {
     }, 2400);
   }, []);
 
+  const applyLocalWorkspaceSession = useCallback((session: LocalWorkspaceSession) => {
+    setActiveWorkspaceId(session.activeWorkspaceId);
+    setWorkspaceState(session.state);
+    setAnalysisStatus(session.state.analysisResult ? 'completed' : 'idle');
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const searchParams = new URLSearchParams(window.location.search);
@@ -101,11 +158,11 @@ export default function App() {
     const freshStart = searchParams.get('fresh') === '1';
 
     const loadLocal = () => {
-      const nextWorkspaceState = freshStart ? defaultWorkspaceState : loadWorkspaceState();
+      const session = loadLocalWorkspaceSession({ freshStart });
 
-      setWorkspaceState(nextWorkspaceState);
-      setAnalysisStatus(nextWorkspaceState.analysisResult ? 'completed' : 'idle');
-      setOwnedShareAccess(freshStart ? null : loadSharedWorkspaceOwnerAccess());
+      applyLocalWorkspaceSession(session);
+      setSharedWorkspaceSnapshotVersion(null);
+      setOwnedShareAccess(freshStart ? null : loadOwnerAccessForLocalWorkspace(session.activeWorkspaceId));
       setHasLoadedWorkspace(true);
     };
 
@@ -127,10 +184,13 @@ export default function App() {
 
         if (shared) {
           setSharedWorkspaceId(wsId);
+          setSharedWorkspaceSnapshotVersion(shared.snapshotVersion);
+          setActiveWorkspaceId(null);
           setSharedWorkspaceLink(null);
           setOwnedShareAccess(loadSharedWorkspaceOwnerAccess(wsId));
           setWorkspaceState(shared.state);
           setAnalysisStatus(shared.state.analysisResult ? 'completed' : 'idle');
+          setActiveView('merge');
           setHasLoadedWorkspace(true);
 
           if (shared.warnings.length > 0) {
@@ -155,22 +215,111 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [showNotice]);
+  }, [applyLocalWorkspaceSession, showNotice]);
 
   useEffect(() => {
     // 공유 모드에서는 남의 워크스페이스로 내 로컬 데이터를 덮어쓰지 않는다.
-    if (!hasLoadedWorkspace || sharedWorkspaceId) {
+    if (!hasLoadedWorkspace || sharedWorkspaceId || !activeWorkspaceId) {
       return;
     }
 
-    saveWorkspaceState(workspaceState);
-  }, [hasLoadedWorkspace, sharedWorkspaceId, workspaceState]);
+    saveWorkspaceState(activeWorkspaceId, workspaceState);
+  }, [activeWorkspaceId, hasLoadedWorkspace, sharedWorkspaceId, workspaceState]);
 
   useEffect(() => () => {
     if (noticeTimeoutRef.current) {
       window.clearTimeout(noticeTimeoutRef.current);
     }
   }, []);
+
+  const leaveSharedMode = () => {
+    setSharedWorkspaceId(null);
+    setSharedWorkspaceSnapshotVersion(null);
+    setSharedWorkspaceLink(null);
+    setOwnedShareAccess(null);
+    removeSharedWorkspaceIdFromUrl();
+  };
+
+  const persistActiveWorkspace = () => {
+    if (!activeWorkspaceId || sharedWorkspaceId) {
+      return true;
+    }
+
+    const saveResult = saveWorkspaceState(activeWorkspaceId, workspaceState);
+
+    if (!saveResult.saved) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const createNewWorkspace = () => {
+    if (!persistActiveWorkspace()) {
+      return;
+    }
+
+    const state = createEmptyWorkspaceState();
+    const created = createWorkspaceEntry(state);
+
+    leaveSharedMode();
+    applyLocalWorkspaceSession({
+      activeWorkspaceId: created.workspaceId,
+      registry: created.registry,
+      state,
+    });
+    setActiveSection(7);
+    setActiveView('setup');
+
+    if (created.saved) {
+      showNotice('새 워크스페이스를 만들었습니다.');
+    }
+  };
+
+  const switchWorkspace = (workspaceId: string) => {
+    if (workspaceId === activeWorkspaceId) {
+      return;
+    }
+
+    if (!persistActiveWorkspace()) {
+      return;
+    }
+
+    const session = activateWorkspaceEntry(workspaceId);
+
+    if (!session) {
+      showNotice('워크스페이스 데이터를 찾지 못해 목록에서 제외했습니다.');
+      return;
+    }
+
+    leaveSharedMode();
+    applyLocalWorkspaceSession(session);
+    setOwnedShareAccess(loadOwnerAccessForLocalWorkspace(workspaceId));
+    setActiveSection(7);
+    showNotice('워크스페이스를 전환했습니다.');
+  };
+
+  const deleteWorkspace = (workspaceId: string) => {
+    const metadata = workspaceRegistry.find((entry) => entry.id === workspaceId);
+    const title = workspaceId === SAMPLE_WORKSPACE_ID
+      ? '검증 샘플'
+      : metadata?.title.trim() || '워크스페이스';
+
+    if (!window.confirm(`${title} 워크스페이스를 삭제할까요? 이 브라우저의 저장 데이터에서만 삭제됩니다.`)) {
+      return;
+    }
+
+    const session = deleteWorkspaceEntry(workspaceId);
+
+    leaveSharedMode();
+
+    if (workspaceId === activeWorkspaceId) {
+      applyLocalWorkspaceSession(session);
+      setActiveSection(7);
+    }
+
+    showNotice('워크스페이스를 삭제했습니다.');
+  };
 
   const copyShareLink = async (url: string) => {
     try {
@@ -186,7 +335,22 @@ export default function App() {
     setActiveView('merge');
   };
 
+  const changeView = (view: AppView) => {
+    if (sharedWorkspaceId && isSharedRestrictedView(view)) {
+      setActiveView('merge');
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
+    setActiveView(view);
+  };
+
   const approveDecision = () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     if (analysisStatus === 'analyzing') {
       return;
     }
@@ -209,6 +373,11 @@ export default function App() {
   };
 
   const saveProject = (project: ProjectSettings) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     setWorkspaceState((current) => ({
       ...current,
       project,
@@ -218,19 +387,42 @@ export default function App() {
   };
 
   const loadSampleWorkspace = () => {
-    const sampleWorkspace = createSampleWorkspaceState();
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
 
-    setWorkspaceState(sampleWorkspace);
-    setSharedWorkspaceLink(null);
-    setSharedWorkspaceId(null);
-    setOwnedShareAccess(null);
-    setAnalysisStatus(sampleWorkspace.analysisResult ? 'completed' : 'idle');
+    if (activeWorkspaceId !== SAMPLE_WORKSPACE_ID && !persistActiveWorkspace()) {
+      return;
+    }
+
+    const sampleWorkspace = createSampleWorkspaceState();
+    const created = createWorkspaceEntry(sampleWorkspace, {
+      workspaceId: SAMPLE_WORKSPACE_ID,
+      titleFallback: '검증 샘플',
+    });
+
+    leaveSharedMode();
+    applyLocalWorkspaceSession({
+      activeWorkspaceId: SAMPLE_WORKSPACE_ID,
+      registry: created.registry,
+      state: sampleWorkspace,
+    });
+    setOwnedShareAccess(loadOwnerAccessForLocalWorkspace(SAMPLE_WORKSPACE_ID));
     setActiveSection(7);
     setActiveView('merge');
-    showNotice('샘플 워크스페이스를 불러왔습니다.');
+
+    if (created.saved) {
+      showNotice('샘플 워크스페이스를 불러왔습니다.');
+    }
   };
 
   const submitDraft = (draft: DraftFormInput) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     setWorkspaceState((current) => ({
       ...current,
       approvedBlockIds: [],
@@ -242,7 +434,36 @@ export default function App() {
     showNotice('초안을 저장했습니다. 다시 분석을 실행할 수 있습니다.');
   };
 
+  const importSharedDraft = (draft: DraftFormInput) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return false;
+    }
+
+    if (workspaceState.drafts.length >= MAX_DRAFT_COUNT) {
+      showNotice(`초안은 최대 ${MAX_DRAFT_COUNT}개까지 저장할 수 있습니다. 기존 초안을 삭제한 뒤 가져오세요.`);
+      return false;
+    }
+
+    setWorkspaceState((current) => ({
+      ...current,
+      approvedBlockIds: [],
+      drafts: [
+        ...current.drafts,
+        createDraftSubmission(draft, current.drafts.length),
+      ],
+    }));
+    showNotice('공유 초안을 로컬 초안으로 가져왔습니다. 다시 분석을 실행할 수 있습니다.');
+
+    return true;
+  };
+
   const deleteDraft = (draftId: string) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     setWorkspaceState((current) => ({
       ...current,
       approvedBlockIds: [],
@@ -252,6 +473,11 @@ export default function App() {
   };
 
   const reanalyze = async () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     if (analysisStatus === 'analyzing') {
       return;
     }
@@ -320,6 +546,11 @@ export default function App() {
   };
 
   const importWorkspace = () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     workspaceImportInputRef.current?.click();
   };
 
@@ -335,23 +566,65 @@ export default function App() {
     }
 
     try {
-      const shared = await createSharedWorkspace(createWorkspaceExport(workspaceState));
+      const exportJson = createWorkspaceExport(workspaceState);
+      const savedOwnerAccess = activeWorkspaceId
+        ? loadOwnerAccessForLocalWorkspace(activeWorkspaceId)
+        : ownedShareAccess;
+
+      if (savedOwnerAccess?.manageToken) {
+        try {
+          const updated = await updateSharedWorkspace(
+            savedOwnerAccess.workspaceId,
+            savedOwnerAccess.manageToken,
+            exportJson,
+          );
+          const ownerAccess: SharedWorkspaceOwnerAccess = {
+            ...savedOwnerAccess,
+            workspaceId: updated.id,
+            expiresAt: updated.expiresAt,
+            snapshotVersion: updated.snapshotVersion,
+            sharedAnalysisRunId: workspaceState.analysisRunId,
+          };
+          const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${updated.id}`;
+
+          saveSharedWorkspaceOwnerAccess(ownerAccess, activeWorkspaceId);
+          setOwnedShareAccess(ownerAccess);
+          setSharedWorkspaceLink(nextShareUrl);
+          showNotice('공유 링크를 새 분석으로 갱신했습니다. 기존 링크가 계속 유효합니다.');
+          return;
+        } catch (error) {
+          if (!(error instanceof SharedWorkspaceRequestError) || !shouldCreateFreshShareAfterUpdateError(error.status)) {
+            showNotice(error instanceof Error ? error.message : '공유 링크 갱신에 실패했습니다.');
+            return;
+          }
+
+          clearSharedWorkspaceOwnerAccess(savedOwnerAccess.workspaceId, activeWorkspaceId);
+        }
+      }
+
+      const shared = await createSharedWorkspace(exportJson);
       const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${shared.id}`;
-      const ownerAccess = {
+      const ownerAccess: SharedWorkspaceOwnerAccess = {
         workspaceId: shared.id,
         manageToken: shared.manageToken,
         expiresAt: shared.expiresAt,
+        snapshotVersion: shared.snapshotVersion,
+        sharedAnalysisRunId: workspaceState.analysisRunId,
       };
 
-      saveSharedWorkspaceOwnerAccess(ownerAccess);
+      saveSharedWorkspaceOwnerAccess(ownerAccess, activeWorkspaceId);
       setOwnedShareAccess(ownerAccess);
       setSharedWorkspaceLink(nextShareUrl);
 
       try {
         await navigator.clipboard.writeText(nextShareUrl);
-        showNotice('공유 링크를 만들었습니다. 30일 후 만료됩니다.');
+        showNotice(savedOwnerAccess
+          ? '기존 공유 링크를 갱신할 수 없어 새 링크를 만들었습니다. 30일 후 만료됩니다.'
+          : '공유 링크를 만들었습니다. 30일 후 만료됩니다.');
       } catch {
-        showNotice('공유 링크를 만들었습니다. 30일 후 만료됩니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.');
+        showNotice(savedOwnerAccess
+          ? '기존 공유 링크를 갱신할 수 없어 새 링크를 만들었습니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.'
+          : '공유 링크를 만들었습니다. 30일 후 만료됩니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.');
       }
     } catch (error) {
       showNotice(error instanceof Error ? error.message : '공유 링크 생성에 실패했습니다.');
@@ -366,7 +639,7 @@ export default function App() {
 
     try {
       await revokeSharedWorkspace(ownedShareAccess.workspaceId, ownedShareAccess.manageToken);
-      clearSharedWorkspaceOwnerAccess(ownedShareAccess.workspaceId);
+      clearSharedWorkspaceOwnerAccess(ownedShareAccess.workspaceId, activeWorkspaceId);
       setOwnedShareAccess(null);
       setSharedWorkspaceLink((current) =>
         current && getShareUrlWorkspaceId(current) === ownedShareAccess.workspaceId ? null : current,
@@ -374,6 +647,7 @@ export default function App() {
 
       if (sharedWorkspaceId === ownedShareAccess.workspaceId) {
         setSharedWorkspaceId(null);
+        setSharedWorkspaceSnapshotVersion(null);
         removeSharedWorkspaceIdFromUrl();
       }
 
@@ -384,6 +658,12 @@ export default function App() {
   };
 
   const importWorkspaceFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      event.currentTarget.value = '';
+      return;
+    }
+
     const file = event.currentTarget.files?.[0];
 
     event.currentTarget.value = '';
@@ -408,12 +688,27 @@ export default function App() {
       return;
     }
 
-    setWorkspaceState(result.state);
-    setSharedWorkspaceLink(null);
-    setOwnedShareAccess(null);
-    setAnalysisStatus(result.state.analysisResult ? 'completed' : 'idle');
+    if (!persistActiveWorkspace()) {
+      return;
+    }
+
+    const created = createWorkspaceEntry(result.state, {
+      titleFallback: '가져온 워크스페이스',
+    });
+
+    leaveSharedMode();
+    applyLocalWorkspaceSession({
+      activeWorkspaceId: created.workspaceId,
+      registry: created.registry,
+      state: result.state,
+    });
     setActiveView('merge');
     setActiveSection(7);
+
+    if (!created.saved) {
+      return;
+    }
+
     showNotice(
       result.warnings.length
         ? `워크스페이스를 가져왔습니다. ${result.warnings.length}개 항목은 보정했습니다.`
@@ -422,6 +717,11 @@ export default function App() {
   };
 
   const applyDecisionOption = (decisionBlockId: string, optionId: string) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     const currentBlock = workspaceState.analysisResult?.decisionBlocks.find((block) => block.id === decisionBlockId);
     const currentOption = currentBlock?.options.find((option) => option.id === optionId);
 
@@ -463,7 +763,7 @@ export default function App() {
   };
 
   const renderContent = () => {
-    if (activeView === 'setup') {
+    if (effectiveActiveView === 'setup') {
       return (
         <ProjectSetupPage
           key={createProjectSettingsKey(workspaceState.project)}
@@ -474,19 +774,23 @@ export default function App() {
       );
     }
 
-    if (activeView === 'drafts') {
+    if (effectiveActiveView === 'drafts') {
       return (
         <DraftSubmitPage
           analysisStatus={analysisStatus}
           drafts={workspaceState.drafts}
+          mode={sharedMode ? 'shared' : 'local'}
+          ownerShareAccess={sharedMode ? null : ownedShareAccess}
+          sharedWorkspaceId={sharedWorkspaceId}
           onDeleteDraft={deleteDraft}
+          onImportSharedDraft={importSharedDraft}
           onRunAnalysis={reanalyze}
           onSubmitDraft={submitDraft}
         />
       );
     }
 
-    if (activeView === 'openQuestions') {
+    if (effectiveActiveView === 'openQuestions') {
       return (
         <OpenQuestionsPage
           documentSections={mergeSections}
@@ -495,7 +799,7 @@ export default function App() {
       );
     }
 
-    if (activeView === 'inspector') {
+    if (effectiveActiveView === 'inspector') {
       return (
         <AnalysisInspectorPage
           project={workspaceState.project}
@@ -504,6 +808,7 @@ export default function App() {
           analysisStatus={analysisStatus}
           decisionLogs={workspaceState.decisionLogs}
           onRunAnalysis={reanalyze}
+          readOnly={sharedMode}
         />
       );
     }
@@ -516,8 +821,9 @@ export default function App() {
       return (
         <MergePreparationView
           draftCount={workspaceState.drafts.length}
-          onAddDraft={() => setActiveView('drafts')}
+          onAddDraft={() => changeView('drafts')}
           onRunAnalysis={reanalyze}
+          readOnly={sharedMode}
         />
       );
     }
@@ -536,11 +842,14 @@ export default function App() {
             localStorage에 저장돼 기존 투표/의견을 덮어쓴다. */}
         {hasLoadedWorkspace && (
           <DecisionPanel
-            key={`${sharedWorkspaceId ?? 'local'}:${workspaceState.analysisRunId}`}
+            key={`${workspaceScopeKey}:${workspaceState.analysisRunId}`}
             selectedSection={selectedSection}
             analysisRunId={workspaceState.analysisRunId}
+            localWorkspaceId={activeWorkspaceId}
             sharedWorkspaceId={sharedWorkspaceId}
-            onApplyDecisionOption={applyDecisionOption}
+            sharedSnapshotVersion={sharedWorkspaceSnapshotVersion}
+            ownerShareAccess={sharedMode ? null : ownedShareAccess}
+            onApplyDecisionOption={sharedMode ? undefined : applyDecisionOption}
           />
         )}
       </>
@@ -549,10 +858,20 @@ export default function App() {
 
   return (
     <div className="flex h-dvh w-full min-w-0 flex-col bg-white md:flex-row">
-      <Sidebar activeView={activeView} analysisStatus={analysisStatus} onViewChange={setActiveView} />
+      <Sidebar
+        activeView={effectiveActiveView}
+        activeWorkspaceId={activeWorkspaceId}
+        analysisStatus={analysisStatus}
+        sharedMode={sharedMode}
+        workspaces={workspaceRegistry}
+        onCreateWorkspace={createNewWorkspace}
+        onDeleteWorkspace={deleteWorkspace}
+        onSwitchWorkspace={switchWorkspace}
+        onViewChange={changeView}
+      />
       <div className="flex-1 min-w-0 flex flex-col">
         <Toolbar
-          activeView={activeView}
+          activeView={effectiveActiveView}
           approvalStatus={approvalStatus}
           analysisStatus={analysisStatus}
           draftCount={workspaceState.drafts.length}
@@ -565,11 +884,11 @@ export default function App() {
           onReanalyze={reanalyze}
           onRevokeSharedWorkspace={revokeCurrentSharedWorkspace}
           onShareWorkspace={shareWorkspace}
-          onViewChange={setActiveView}
+          onViewChange={changeView}
           projectTitle={workspaceState.project.title}
           qualityLevel={qualityLevel}
           canRevokeSharedWorkspace={Boolean(ownedShareAccess?.manageToken)}
-          sharedMode={Boolean(sharedWorkspaceId)}
+          sharedMode={sharedMode}
         />
         <input
           ref={workspaceImportInputRef}
@@ -578,12 +897,12 @@ export default function App() {
           className="hidden"
           onChange={importWorkspaceFile}
         />
-        {notice && (
+        {displayedNotice && (
           <div
             data-testid="app-notice"
             className="border-b border-emerald-100 bg-emerald-50 px-8 py-2 text-sm text-emerald-800"
           >
-            {notice}
+            {displayedNotice}
           </div>
         )}
         {sharedWorkspaceLink && (
@@ -595,10 +914,10 @@ export default function App() {
         )}
         {sharedWorkspaceId && (
           <div className="border-b border-blue-100 bg-blue-50 px-8 py-2 text-sm text-blue-800">
-            팀 공유 워크스페이스입니다. 투표와 익명 의견이 참여자 전체 기준으로 집계됩니다. 문서 편집은 이 브라우저에만 유지됩니다.
+            공유된 워크스페이스를 보고 있습니다. 투표·의견·초안 제출만 반영됩니다.
           </div>
         )}
-        {activeView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && !sampleWorkspace && (
+        {effectiveActiveView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && !sampleWorkspace && (
           <div className="border-b border-amber-100 bg-amber-50 px-8 py-2 text-sm text-amber-800">
             로컬 하네스 결과입니다. 실제 모델 호출 전 구조 검증과 화면 연결 확인에 사용합니다.
           </div>
@@ -615,10 +934,12 @@ function MergePreparationView({
   draftCount,
   onAddDraft,
   onRunAnalysis,
+  readOnly,
 }: {
   draftCount: number;
   onAddDraft: () => void;
   onRunAnalysis: () => void;
+  readOnly: boolean;
 }) {
   const hasDrafts = draftCount > 0;
 
@@ -628,42 +949,48 @@ function MergePreparationView({
         <div className="text-xs text-gray-500">Merge Result</div>
         <h2 className="mt-2 text-2xl text-gray-900">아직 병합 결과가 없습니다.</h2>
         <p className="mt-3 text-sm leading-relaxed text-gray-600">
-          프로젝트 기준을 저장하고 AI 초안을 붙여넣은 뒤 분석을 실행하면, 최종 기획서와 섹션별 선택 근거가 생성됩니다.
+          {readOnly
+            ? '이 공유 워크스페이스에는 표시할 병합 결과가 없습니다.'
+            : '프로젝트 기준을 저장하고 AI 초안을 붙여넣은 뒤 분석을 실행하면, 최종 기획서와 섹션별 선택 근거가 생성됩니다.'}
         </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-md border border-gray-200 p-4">
-            <div className="text-sm text-gray-900">1. 프로젝트 설정</div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">목표, 공통 기준, 제외 범위를 먼저 고정합니다.</p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-4">
-            <div className="text-sm text-gray-900">2. 초안 입력</div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">팀원이 AI로 만든 초안을 여러 개 붙여넣습니다.</p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-4">
-            <div className="text-sm text-gray-900">3. 병합 분석</div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">선택안, 대안, 충돌 의견을 Decision Block으로 정리합니다.</p>
-          </div>
-        </div>
+        {!readOnly && (
+          <>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md border border-gray-200 p-4">
+                <div className="text-sm text-gray-900">1. 프로젝트 설정</div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">목표, 공통 기준, 제외 범위를 먼저 고정합니다.</p>
+              </div>
+              <div className="rounded-md border border-gray-200 p-4">
+                <div className="text-sm text-gray-900">2. 초안 입력</div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">팀원이 AI로 만든 초안을 여러 개 붙여넣습니다.</p>
+              </div>
+              <div className="rounded-md border border-gray-200 p-4">
+                <div className="text-sm text-gray-900">3. 병합 분석</div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">선택안, 대안, 충돌 의견을 Decision Block으로 정리합니다.</p>
+              </div>
+            </div>
 
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
-            onClick={hasDrafts ? onRunAnalysis : onAddDraft}
-          >
-            {hasDrafts ? `${draftCount}개 초안으로 분석 실행` : '초안 입력하기'}
-          </button>
-          {hasDrafts && (
-            <button
-              type="button"
-              className="rounded-md border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
-              onClick={onAddDraft}
-            >
-              초안 더 추가
-            </button>
-          )}
-        </div>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
+                onClick={hasDrafts ? onRunAnalysis : onAddDraft}
+              >
+                {hasDrafts ? `${draftCount}개 초안으로 분석 실행` : '초안 입력하기'}
+              </button>
+              {hasDrafts && (
+                <button
+                  type="button"
+                  className="rounded-md border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                  onClick={onAddDraft}
+                >
+                  초안 더 추가
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </main>
   );
@@ -684,7 +1011,7 @@ function ShareWorkspaceBanner({
         <div className="min-w-0">
           <div className="text-sm text-blue-950">팀 공유 링크가 생성되었습니다.</div>
           <p className="mt-1 text-xs leading-relaxed text-blue-700">
-            현재 워크스페이스의 스냅샷 링크입니다. 이후 수정한 내용까지 공유하려면 새 링크를 다시 만들어야 합니다.
+            현재 워크스페이스의 스냅샷 링크입니다. 이후 수정한 내용까지 공유하려면 공유를 다시 갱신하세요.
           </p>
         </div>
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
@@ -735,6 +1062,18 @@ function removeSharedWorkspaceIdFromUrl() {
 
   url.searchParams.delete('ws');
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function isSharedRestrictedView(view: AppView) {
+  return view === 'setup';
+}
+
+function shouldCreateFreshShareAfterUpdateError(status: number | undefined) {
+  return status === 401 || status === 404 || status === 410;
+}
+
+function loadOwnerAccessForLocalWorkspace(localWorkspaceId: string) {
+  return loadSharedWorkspaceOwnerAccess(localWorkspaceId) ?? loadLegacySharedWorkspaceOwnerAccess();
 }
 
 function createDecisionOverrideLog(

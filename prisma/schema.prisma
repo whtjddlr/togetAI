@@ -258,6 +258,7 @@ model SharedWorkspace {
   id              String    @id @default(uuid())
   title           String
   snapshot        Json
+  snapshotVersion Int       @default(1)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   expiresAt       DateTime?
@@ -266,11 +267,29 @@ model SharedWorkspace {
 
   votes    SharedWorkspaceVote[]
   opinions SharedWorkspaceOpinion[]
+  drafts   SharedWorkspaceDraft[]
+}
+
+model SharedWorkspaceDraft {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  authorName   String
+  aiModel      String
+  taskTitle    String
+  rawText      String
+  status       String   @default("pending") // pending | imported | dismissed
+  anonymousKey String
+  createdAt    DateTime @default(now())
+
+  workspace SharedWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, createdAt])
 }
 
 model SharedWorkspaceVote {
   id              String   @id @default(uuid())
   workspaceId     String
+  snapshotVersion Int      @default(1)
   decisionBlockId String
   optionId        String
   anonymousKey    String
@@ -279,13 +298,14 @@ model SharedWorkspaceVote {
 
   workspace SharedWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([workspaceId, decisionBlockId, anonymousKey])
-  @@index([workspaceId, decisionBlockId])
+  @@unique([workspaceId, snapshotVersion, decisionBlockId, anonymousKey])
+  @@index([workspaceId, snapshotVersion, decisionBlockId])
 }
 
 model SharedWorkspaceOpinion {
   id              String   @id @default(uuid())
   workspaceId     String
+  snapshotVersion Int      @default(1)
   decisionBlockId String
   anonymousKey    String
   content         String
@@ -293,7 +313,7 @@ model SharedWorkspaceOpinion {
 
   workspace SharedWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@index([workspaceId, decisionBlockId, createdAt])
+  @@index([workspaceId, snapshotVersion, decisionBlockId, createdAt])
 }
 
 model AIJob {

@@ -1,9 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { parseWorkspaceImport } from '@/planmerge/lib/localWorkspace';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
+import { hashManageToken } from '@/server/sharedWorkspace';
 
 const RATE_LIMIT = { limit: 5, windowMs: 60_000 };
 const MAX_SNAPSHOT_CHARS = 1_500_000;
@@ -11,10 +12,6 @@ const DEFAULT_SHARE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 function createManageToken() {
   return randomBytes(32).toString('hex');
-}
-
-function hashManageToken(manageToken: string) {
-  return createHash('sha256').update(manageToken).digest('hex');
 }
 
 export async function POST(request: Request) {
@@ -60,13 +57,14 @@ export async function POST(request: Request) {
         expiresAt,
         manageTokenHash: hashManageToken(manageToken),
       },
-      select: { id: true, expiresAt: true },
+      select: { id: true, expiresAt: true, snapshotVersion: true },
     });
 
     return NextResponse.json(
       {
         id: workspace.id,
         manageToken,
+        snapshotVersion: workspace.snapshotVersion,
         expiresAt: (workspace.expiresAt ?? expiresAt).toISOString(),
       },
       { status: 201 },

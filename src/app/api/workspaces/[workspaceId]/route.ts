@@ -1,40 +1,27 @@
-import { Buffer } from 'node:buffer';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
+import { parseWorkspaceImport } from '@/planmerge/lib/localWorkspace';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import {
   getSharedWorkspaceAccessStatus,
+  isManageTokenMatch,
   isValidWorkspaceId,
+  MANAGE_TOKEN_MAX_LENGTH,
   SHARED_WORKSPACE_UNAVAILABLE_ERROR,
 } from '@/server/sharedWorkspace';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
 const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
+const UPDATE_RATE_LIMIT = { limit: 5, windowMs: 60_000 };
 const REVOKE_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
-const MANAGE_TOKEN_MAX_LENGTH = 256;
-const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
+const MAX_SNAPSHOT_CHARS = 1_500_000;
+const DEFAULT_SHARE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 type RouteContext = {
   params: Promise<{
     workspaceId: string;
   }>;
 };
-
-function hashManageToken(manageToken: string) {
-  return createHash('sha256').update(manageToken).digest('hex');
-}
-
-function isManageTokenMatch(manageToken: string, manageTokenHash: string | null) {
-  if (!manageTokenHash || !SHA_256_HEX_PATTERN.test(manageTokenHash)) {
-    return false;
-  }
-
-  const actualHash = hashManageToken(manageToken);
-  const expected = Buffer.from(manageTokenHash, 'hex');
-  const actual = Buffer.from(actualHash, 'hex');
-
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
 
 export async function GET(request: Request, context: RouteContext) {
   const rateLimit = await checkRateLimit('workspaces-read', getClientKey(request), RATE_LIMIT);
@@ -62,7 +49,7 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const workspace = await getDb().sharedWorkspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, title: true, snapshot: true, expiresAt: true, revokedAt: true },
+      select: { id: true, title: true, snapshot: true, snapshotVersion: true, expiresAt: true, revokedAt: true },
     });
 
     if (!workspace) {
@@ -76,6 +63,7 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({
       id: workspace.id,
       title: workspace.title,
+      snapshotVersion: workspace.snapshotVersion,
       workspace: workspace.snapshot,
     });
   } catch (error) {
@@ -83,6 +71,98 @@ export async function GET(request: Request, context: RouteContext) {
 
     return NextResponse.json(
       { errors: ['공유 워크스페이스 조회에 실패했습니다.'] },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(request: Request, context: RouteContext) {
+  const rateLimit = await checkRateLimit('workspaces-update', getClientKey(request), UPDATE_RATE_LIMIT);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { errors: ['공유 링크 갱신 요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.'] },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } },
+    );
+  }
+
+  if (!isDatabaseConfigured()) {
+    return NextResponse.json(
+      { errors: ['데이터베이스가 설정되지 않아 공유 기능을 사용할 수 없습니다.'] },
+      { status: 503 },
+    );
+  }
+
+  const { workspaceId } = await context.params;
+
+  if (!isValidWorkspaceId(workspaceId)) {
+    return NextResponse.json({ errors: ['잘못된 워크스페이스 ID입니다.'] }, { status: 400 });
+  }
+
+  const rawBody = await request.text();
+
+  if (rawBody.length > MAX_SNAPSHOT_CHARS) {
+    return NextResponse.json(
+      { errors: ['워크스페이스가 너무 커서 공유할 수 없습니다.'] },
+      { status: 413 },
+    );
+  }
+
+  const parsed = parseWorkspaceImport(rawBody);
+
+  if (!parsed.valid) {
+    return NextResponse.json({ errors: parsed.errors }, { status: 400 });
+  }
+
+  try {
+    const workspace = await getDb().sharedWorkspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, revokedAt: true, manageTokenHash: true },
+    });
+
+    if (!workspace) {
+      return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
+    }
+
+    if (workspace.revokedAt) {
+      return NextResponse.json({ errors: ['회수된 공유 링크는 갱신할 수 없습니다.'] }, { status: 410 });
+    }
+
+    const manageToken = request.headers.get('x-manage-token')?.trim();
+
+    if (
+      !manageToken ||
+      manageToken.length > MANAGE_TOKEN_MAX_LENGTH ||
+      !isManageTokenMatch(manageToken, workspace.manageTokenHash)
+    ) {
+      return NextResponse.json(
+        { errors: ['공유 링크를 갱신할 권한이 없습니다.'] },
+        { status: 401 },
+      );
+    }
+
+    const expiresAt = new Date(Date.now() + DEFAULT_SHARE_EXPIRY_MS);
+    const updated = await getDb().sharedWorkspace.update({
+      where: { id: workspaceId },
+      data: {
+        title: parsed.state.project.title.slice(0, 200) || 'PlanMerge 워크스페이스',
+        snapshot: parsed.state as unknown as Prisma.InputJsonValue,
+        snapshotVersion: { increment: 1 },
+        expiresAt,
+      },
+      select: { id: true, snapshotVersion: true, expiresAt: true },
+    });
+
+    return NextResponse.json({
+      id: updated.id,
+      snapshotVersion: updated.snapshotVersion,
+      expiresAt: (updated.expiresAt ?? expiresAt).toISOString(),
+    });
+  } catch (error) {
+    console.error('[workspaces] update failed:', error);
+
+    return NextResponse.json(
+      { errors: ['공유 링크 갱신에 실패했습니다.'] },
       { status: 500 },
     );
   }

@@ -19,13 +19,19 @@ test.describe.serial('PlanMerge keyless fallback core flow', () => {
     await expect(page.getByRole('heading', { level: 2, name: /^새 병합 프로젝트 만들기$/ })).toBeVisible();
 
     await page.getByRole('button', { name: /^검증 샘플 바로 열기$/ }).click();
+    await expect(page.getByTestId('workspace-switcher')).toContainText('검증 샘플');
     await expect(page.getByRole('heading', { level: 1, name: /^병합 결과$/ })).toBeVisible();
     await expect(page.getByRole('heading', {
       level: 1,
       name: /^회의록 기반 액션아이템 정리 SaaS 기획서$/,
     })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^선택안 승인$/ })).toBeVisible();
+    await openToolbarMenu(page);
+    await expect(page.getByRole('button', { name: /^다시 분석$/ })).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await navigation.getByRole('button', { name: /^초안 입력$/ }).click();
+    await expect(page.getByTestId('shared-drafts-owner-panel')).toHaveCount(0);
     const analysisResponsePromise = page.waitForResponse((response) =>
       response.url().includes('/api/analyze/planmerge') && response.request().method() === 'POST',
     );

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isDatabaseConfigured } from '@/server/db';
 import {
-  findSharedWorkspaceAccessStatus,
+  findSharedWorkspaceAccessDetails,
   getBlockParticipation,
   isValidWorkspaceId,
   readRequiredString,
@@ -43,23 +43,39 @@ export async function GET(request: Request, context: RouteContext) {
   const url = new URL(request.url);
   const decisionBlockId = readRequiredString(url.searchParams.get('decisionBlockId'), 160);
   const anonymousKey = readRequiredString(url.searchParams.get('anonymousKey'), 80);
+  const requestedVersion = readRequestedVersion(url.searchParams.get('version'));
 
   if (!decisionBlockId) {
     return NextResponse.json({ errors: ['decisionBlockId가 필요합니다.'] }, { status: 400 });
   }
 
-  try {
-    const accessStatus = await findSharedWorkspaceAccessStatus(workspaceId);
+  if (requestedVersion === 'invalid') {
+    return NextResponse.json({ errors: ['version은 1 이상의 정수여야 합니다.'] }, { status: 400 });
+  }
 
-    if (accessStatus === 'not_found') {
+  try {
+    const accessDetails = await findSharedWorkspaceAccessDetails(workspaceId);
+
+    if (accessDetails.status === 'not_found') {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
     }
 
-    if (accessStatus === 'expired_or_revoked') {
+    if (accessDetails.status === 'expired_or_revoked') {
       return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
     }
 
-    return NextResponse.json(await getBlockParticipation(workspaceId, decisionBlockId, anonymousKey));
+    const snapshotVersion = requestedVersion ?? accessDetails.snapshotVersion;
+
+    if (snapshotVersion > accessDetails.snapshotVersion) {
+      return NextResponse.json(
+        { errors: ['현재 공유본보다 큰 version은 조회할 수 없습니다.'] },
+        { status: 400 },
+      );
+    }
+
+    return NextResponse.json(
+      await getBlockParticipation(workspaceId, snapshotVersion, decisionBlockId, anonymousKey),
+    );
   } catch (error) {
     console.error('[workspaces] participation read failed:', error);
 
@@ -68,4 +84,20 @@ export async function GET(request: Request, context: RouteContext) {
       { status: 500 },
     );
   }
+}
+
+function readRequestedVersion(value: string | null) {
+  if (value === null) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (!/^\d+$/.test(trimmed)) {
+    return 'invalid' as const;
+  }
+
+  const version = Number(trimmed);
+
+  return Number.isSafeInteger(version) && version > 0 ? version : 'invalid';
 }

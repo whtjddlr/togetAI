@@ -116,7 +116,9 @@ export function Toolbar({
       ? getMergeSubtitle(draftCount, normalizedIdeaCount, hasMergeResult)
       : activeView === 'inspector'
         ? `${draftCount}개의 초안을 기준으로 분석 구조를 검사합니다`
-      : viewCopy[activeView].subtitle,
+        : activeView === 'drafts' && sharedMode
+          ? '공유 워크스페이스에 AI 초안을 제출합니다'
+          : viewCopy[activeView].subtitle,
   };
 
   const runMenuAction = (action: () => void) => {
@@ -142,7 +144,7 @@ export function Toolbar({
           >
             •••
           </button>
-          {activeView === 'merge' && hasMergeResult && (
+          {activeView === 'merge' && hasMergeResult && !sharedMode && (
             <button
               type="button"
               className={`px-4 py-1.5 rounded-md text-sm text-white transition-colors ${
@@ -159,21 +161,25 @@ export function Toolbar({
           )}
           {menuOpen && (
             <div className="absolute right-0 top-10 z-10 w-56 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
-              <button
-                type="button"
-                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                onClick={() => runMenuAction(() => onViewChange('drafts'))}
-              >
-                초안 추가
-              </button>
-              <button
-                type="button"
-                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:text-gray-400"
-                disabled={analysisStatus === 'analyzing'}
-                onClick={() => runMenuAction(onReanalyze)}
-              >
-                {analysisStatus === 'analyzing' ? '분석 중' : '다시 분석'}
-              </button>
+              {!sharedMode && (
+                <>
+                  <button
+                    type="button"
+                    className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => runMenuAction(() => onViewChange('drafts'))}
+                  >
+                    초안 추가
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:text-gray-400"
+                    disabled={analysisStatus === 'analyzing'}
+                    onClick={() => runMenuAction(onReanalyze)}
+                  >
+                    {analysisStatus === 'analyzing' ? '분석 중' : '다시 분석'}
+                  </button>
+                </>
+              )}
               {!sharedMode && (
                 <button
                   type="button"
@@ -208,13 +214,15 @@ export function Toolbar({
               >
                 워크스페이스 내보내기
               </button>
-              <button
-                type="button"
-                className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
-                onClick={() => runMenuAction(onImportWorkspace)}
-              >
-                워크스페이스 가져오기
-              </button>
+              {!sharedMode && (
+                <button
+                  type="button"
+                  className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => runMenuAction(onImportWorkspace)}
+                >
+                  워크스페이스 가져오기
+                </button>
+              )}
             </div>
           )}
         </div>

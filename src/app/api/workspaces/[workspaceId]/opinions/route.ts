@@ -10,6 +10,7 @@ import {
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
 const RATE_LIMIT = { limit: 20, windowMs: 60_000 };
+const SHARED_WORKSPACE_REFRESH_ERROR = '공유본이 갱신되었습니다. 페이지를 새로고침 해주세요.';
 
 type RouteContext = {
   params: Promise<{
@@ -52,16 +53,17 @@ export async function POST(request: Request, context: RouteContext) {
   const decisionBlockId = readRequiredString(record.decisionBlockId, 160);
   const content = readRequiredString(record.content, 4000);
   const anonymousKey = readRequiredString(record.anonymousKey, 80);
+  const snapshotVersion = readSnapshotVersion(record.snapshotVersion);
 
-  if (!decisionBlockId || !content || !anonymousKey) {
+  if (!decisionBlockId || !content || !anonymousKey || !snapshotVersion) {
     return NextResponse.json(
-      { errors: ['decisionBlockId, content, anonymousKey가 모두 필요합니다.'] },
+      { errors: ['decisionBlockId, content, anonymousKey, snapshotVersion이 모두 필요합니다.'] },
       { status: 400 },
     );
   }
 
   try {
-    const target = await getSharedDecisionBlockTarget(workspaceId, decisionBlockId);
+    const target = await getSharedDecisionBlockTarget(workspaceId, decisionBlockId, snapshotVersion);
 
     if (target.status === 'workspace_not_found') {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
@@ -71,6 +73,10 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
     }
 
+    if (target.status === 'version_mismatch') {
+      return NextResponse.json({ errors: [SHARED_WORKSPACE_REFRESH_ERROR] }, { status: 409 });
+    }
+
     if (target.status !== 'found') {
       return NextResponse.json({ errors: ['존재하지 않는 결정 블록 또는 선택지입니다.'] }, { status: 400 });
     }
@@ -78,13 +84,14 @@ export async function POST(request: Request, context: RouteContext) {
     await getDb().sharedWorkspaceOpinion.create({
       data: {
         workspaceId,
+        snapshotVersion,
         decisionBlockId,
         content,
         anonymousKey,
       },
     });
 
-    return NextResponse.json(await getBlockParticipation(workspaceId, decisionBlockId, anonymousKey));
+    return NextResponse.json(await getBlockParticipation(workspaceId, snapshotVersion, decisionBlockId, anonymousKey));
   } catch (error) {
     console.error('[workspaces] opinion failed:', error);
 
@@ -93,4 +100,10 @@ export async function POST(request: Request, context: RouteContext) {
       { status: 500 },
     );
   }
+}
+
+function readSnapshotVersion(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
 }

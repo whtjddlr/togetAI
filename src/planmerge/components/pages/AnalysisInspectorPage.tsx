@@ -29,6 +29,7 @@ type AnalysisInspectorPageProps = {
   analysisStatus: 'idle' | 'analyzing' | 'completed';
   decisionLogs: LocalDecisionLog[];
   onRunAnalysis: () => void;
+  readOnly: boolean;
 };
 
 type InspectorTab = 'quality' | 'ideas' | 'decisions' | 'logs' | 'validation';
@@ -48,6 +49,7 @@ export function AnalysisInspectorPage({
   analysisStatus,
   decisionLogs,
   onRunAnalysis,
+  readOnly,
 }: AnalysisInspectorPageProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('quality');
   const [decisionFilter, setDecisionFilter] = useState<QualityDecisionFilter>('all');
@@ -96,14 +98,16 @@ export function AnalysisInspectorPage({
           <div className="mt-2 text-sm leading-relaxed text-gray-600">
             현재 워크스페이스에는 검사할 분석 결과가 없습니다.
           </div>
-          <button
-            type="button"
-            className="mt-5 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-gray-300"
-            disabled={analysisStatus === 'analyzing'}
-            onClick={onRunAnalysis}
-          >
-            {analysisStatus === 'analyzing' ? '분석 중' : '분석 실행'}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="mt-5 rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-wait disabled:bg-gray-300"
+              disabled={analysisStatus === 'analyzing'}
+              onClick={onRunAnalysis}
+            >
+              {analysisStatus === 'analyzing' ? '분석 중' : '분석 실행'}
+            </button>
+          )}
         </div>
       </main>
     );
@@ -131,14 +135,16 @@ export function AnalysisInspectorPage({
               <span>{analysisResult.protocolVersion}</span>
             </div>
           </div>
-          <button
-            type="button"
-            className="w-fit rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:text-gray-400"
-            disabled={analysisStatus === 'analyzing'}
-            onClick={onRunAnalysis}
-          >
-            {analysisStatus === 'analyzing' ? '분석 중' : '다시 분석'}
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              className="w-fit rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:text-gray-400"
+              disabled={analysisStatus === 'analyzing'}
+              onClick={onRunAnalysis}
+            >
+              {analysisStatus === 'analyzing' ? '분석 중' : '다시 분석'}
+            </button>
+          )}
         </div>
 
         <SummaryGrid
