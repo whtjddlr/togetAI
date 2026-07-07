@@ -465,7 +465,7 @@ function uniqueId(prefix: string, existingIds: Set<string>) {
 }
 
 export async function POST(request: Request) {
-  const rateLimit = checkRateLimit('analyze-planmerge', getClientKey(request), RATE_LIMIT);
+  const rateLimit = await checkRateLimit('analyze-planmerge', getClientKey(request), RATE_LIMIT);
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

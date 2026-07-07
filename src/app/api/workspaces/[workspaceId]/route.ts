@@ -12,7 +12,7 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
-  const rateLimit = checkRateLimit('workspaces-read', getClientKey(request), RATE_LIMIT);
+  const rateLimit = await checkRateLimit('workspaces-read', getClientKey(request), RATE_LIMIT);
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

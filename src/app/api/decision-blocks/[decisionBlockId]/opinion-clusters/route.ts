@@ -37,7 +37,7 @@ function readClusterResponse(response: { clusters?: OpinionCluster[] }) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const rateLimit = checkRateLimit('opinion-clusters', getClientKey(request), RATE_LIMIT);
+  const rateLimit = await checkRateLimit('opinion-clusters', getClientKey(request), RATE_LIMIT);
 
   if (!rateLimit.allowed) {
     return NextResponse.json(
