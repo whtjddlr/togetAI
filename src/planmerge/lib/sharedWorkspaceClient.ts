@@ -12,6 +12,14 @@ export type SharedWorkspaceLoadResult = {
   warnings: string[];
 };
 
+export type SharedWorkspaceCreateResult = {
+  id: string;
+  manageToken: string;
+  expiresAt: string;
+};
+
+export const SHARED_LINK_UNAVAILABLE_MESSAGE = '공유 링크가 만료되었거나 회수되었습니다.';
+
 type ParticipationResponse = {
   votes?: Record<string, number>;
   myOptionId?: string | null;
@@ -51,15 +59,35 @@ function toParticipation(data: ParticipationResponse): SharedParticipation {
 
 async function readErrorMessage(response: Response, fallback: string) {
   try {
-    const data = await response.json() as { errors?: string[] };
+    const data = await response.json() as { errors?: unknown };
 
-    return data.errors?.[0] ?? fallback;
+    return Array.isArray(data.errors) && typeof data.errors[0] === 'string'
+      ? data.errors[0]
+      : fallback;
   } catch {
     return fallback;
   }
 }
 
-export async function createSharedWorkspace(exportJson: string): Promise<{ id: string }> {
+function isSharedLinkUnavailableError(error: unknown) {
+  return error instanceof Error && error.message === SHARED_LINK_UNAVAILABLE_MESSAGE;
+}
+
+async function readSharedLinkUnavailableMessage(response: Response) {
+  const message = await readErrorMessage(response, SHARED_LINK_UNAVAILABLE_MESSAGE);
+
+  return message === SHARED_LINK_UNAVAILABLE_MESSAGE
+    ? message
+    : SHARED_LINK_UNAVAILABLE_MESSAGE;
+}
+
+async function throwIfSharedLinkUnavailable(response: Response) {
+  if (response.status === 410) {
+    throw new Error(await readSharedLinkUnavailableMessage(response));
+  }
+}
+
+export async function createSharedWorkspace(exportJson: string): Promise<SharedWorkspaceCreateResult> {
   const response = await fetch('/api/workspaces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -70,17 +98,46 @@ export async function createSharedWorkspace(exportJson: string): Promise<{ id: s
     throw new Error(await readErrorMessage(response, '공유 링크 생성에 실패했습니다.'));
   }
 
-  const data = await response.json() as { id?: string };
+  const data = await response.json() as {
+    id?: string;
+    manageToken?: string;
+    expiresAt?: string;
+  };
 
-  if (!data.id) {
+  if (!data.id || !data.manageToken || !data.expiresAt) {
     throw new Error('공유 링크 생성 응답이 올바르지 않습니다.');
   }
 
-  return { id: data.id };
+  return {
+    id: data.id,
+    manageToken: data.manageToken,
+    expiresAt: data.expiresAt,
+  };
+}
+
+export async function revokeSharedWorkspace(workspaceId: string, manageToken: string): Promise<void> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE',
+    headers: { 'x-manage-token': manageToken },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, '공유 링크 회수에 실패했습니다.'));
+  }
+
+  const data = await response.json() as { revoked?: boolean };
+
+  if (data.revoked !== true) {
+    throw new Error('공유 링크 회수 응답이 올바르지 않습니다.');
+  }
 }
 
 export async function fetchSharedWorkspace(workspaceId: string): Promise<SharedWorkspaceLoadResult | null> {
   const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`).catch(() => null);
+
+  if (response?.status === 410) {
+    throw new Error(await readSharedLinkUnavailableMessage(response));
+  }
 
   if (!response?.ok) {
     return null;
@@ -131,12 +188,18 @@ export async function fetchBlockParticipation(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/participation?${query.toString()}`,
     );
 
+    await throwIfSharedLinkUnavailable(response);
+
     if (!response.ok) {
       return null;
     }
 
     return toParticipation(await response.json() as ParticipationResponse);
-  } catch {
+  } catch (error) {
+    if (isSharedLinkUnavailableError(error)) {
+      throw error;
+    }
+
     return null;
   }
 }
@@ -154,12 +217,18 @@ export async function submitSharedVote(
       body: JSON.stringify({ decisionBlockId, optionId, anonymousKey }),
     });
 
+    await throwIfSharedLinkUnavailable(response);
+
     if (!response.ok) {
       return null;
     }
 
     return toParticipation(await response.json() as ParticipationResponse);
-  } catch {
+  } catch (error) {
+    if (isSharedLinkUnavailableError(error)) {
+      throw error;
+    }
+
     return null;
   }
 }
@@ -177,12 +246,18 @@ export async function submitSharedOpinion(
       body: JSON.stringify({ decisionBlockId, content, anonymousKey }),
     });
 
+    await throwIfSharedLinkUnavailable(response);
+
     if (!response.ok) {
       return null;
     }
 
     return toParticipation(await response.json() as ParticipationResponse);
-  } catch {
+  } catch (error) {
+    if (isSharedLinkUnavailableError(error)) {
+      throw error;
+    }
+
     return null;
   }
 }

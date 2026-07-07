@@ -5,6 +5,7 @@ import {
   getSharedDecisionBlockTarget,
   isValidWorkspaceId,
   readRequiredString,
+  SHARED_WORKSPACE_UNAVAILABLE_ERROR,
 } from '@/server/sharedWorkspace';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
@@ -64,6 +65,10 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (target.status === 'workspace_not_found') {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
+    }
+
+    if (target.status === 'workspace_expired_or_revoked') {
+      return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
     }
 
     if (target.status !== 'found') {

@@ -22,7 +22,13 @@ import {
 } from './lib/localWorkspace';
 import type { DraftFormInput, LocalDecisionLog, ProjectSettings } from './lib/localWorkspace';
 import { generatePlanMergeAnalysis } from './lib/ai/planmergeAnalysisClient';
-import { createSharedWorkspace, fetchSharedWorkspace } from './lib/sharedWorkspaceClient';
+import { createSharedWorkspace, fetchSharedWorkspace, revokeSharedWorkspace } from './lib/sharedWorkspaceClient';
+import {
+  clearSharedWorkspaceOwnerAccess,
+  loadSharedWorkspaceOwnerAccess,
+  saveSharedWorkspaceOwnerAccess,
+} from './lib/sharedWorkspaceOwnerStore';
+import type { SharedWorkspaceOwnerAccess } from './lib/sharedWorkspaceOwnerStore';
 import { createDocumentSectionsFromAnalysis } from './lib/analysisViewModel';
 import { applyDecisionOptionOverride } from './lib/analysisOverride';
 import { evaluateAnalysisQuality, type QualityLevel } from './lib/analysisQuality';
@@ -44,6 +50,7 @@ export default function App() {
   const [hasLoadedWorkspace, setHasLoadedWorkspace] = useState(false);
   const [sharedWorkspaceId, setSharedWorkspaceId] = useState<string | null>(null);
   const [sharedWorkspaceLink, setSharedWorkspaceLink] = useState<string | null>(null);
+  const [ownedShareAccess, setOwnedShareAccess] = useState<SharedWorkspaceOwnerAccess | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimeoutRef = useRef<number | null>(null);
   const workspaceImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -98,6 +105,7 @@ export default function App() {
 
       setWorkspaceState(nextWorkspaceState);
       setAnalysisStatus(nextWorkspaceState.analysisResult ? 'completed' : 'idle');
+      setOwnedShareAccess(freshStart ? null : loadSharedWorkspaceOwnerAccess());
       setHasLoadedWorkspace(true);
     };
 
@@ -120,6 +128,7 @@ export default function App() {
         if (shared) {
           setSharedWorkspaceId(wsId);
           setSharedWorkspaceLink(null);
+          setOwnedShareAccess(loadSharedWorkspaceOwnerAccess(wsId));
           setWorkspaceState(shared.state);
           setAnalysisStatus(shared.state.analysisResult ? 'completed' : 'idle');
           setHasLoadedWorkspace(true);
@@ -214,6 +223,7 @@ export default function App() {
     setWorkspaceState(sampleWorkspace);
     setSharedWorkspaceLink(null);
     setSharedWorkspaceId(null);
+    setOwnedShareAccess(null);
     setAnalysisStatus(sampleWorkspace.analysisResult ? 'completed' : 'idle');
     setActiveSection(7);
     setActiveView('merge');
@@ -325,13 +335,51 @@ export default function App() {
     }
 
     try {
-      const { id } = await createSharedWorkspace(createWorkspaceExport(workspaceState));
-      const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${id}`;
+      const shared = await createSharedWorkspace(createWorkspaceExport(workspaceState));
+      const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${shared.id}`;
+      const ownerAccess = {
+        workspaceId: shared.id,
+        manageToken: shared.manageToken,
+        expiresAt: shared.expiresAt,
+      };
 
+      saveSharedWorkspaceOwnerAccess(ownerAccess);
+      setOwnedShareAccess(ownerAccess);
       setSharedWorkspaceLink(nextShareUrl);
-      await copyShareLink(nextShareUrl);
+
+      try {
+        await navigator.clipboard.writeText(nextShareUrl);
+        showNotice('공유 링크를 만들었습니다. 30일 후 만료됩니다.');
+      } catch {
+        showNotice('공유 링크를 만들었습니다. 30일 후 만료됩니다. 클립보드 권한이 없어 링크를 직접 복사해 주세요.');
+      }
     } catch (error) {
       showNotice(error instanceof Error ? error.message : '공유 링크 생성에 실패했습니다.');
+    }
+  };
+
+  const revokeCurrentSharedWorkspace = async () => {
+    if (!ownedShareAccess) {
+      showNotice('회수할 공유 링크를 찾지 못했습니다.');
+      return;
+    }
+
+    try {
+      await revokeSharedWorkspace(ownedShareAccess.workspaceId, ownedShareAccess.manageToken);
+      clearSharedWorkspaceOwnerAccess(ownedShareAccess.workspaceId);
+      setOwnedShareAccess(null);
+      setSharedWorkspaceLink((current) =>
+        current && getShareUrlWorkspaceId(current) === ownedShareAccess.workspaceId ? null : current,
+      );
+
+      if (sharedWorkspaceId === ownedShareAccess.workspaceId) {
+        setSharedWorkspaceId(null);
+        removeSharedWorkspaceIdFromUrl();
+      }
+
+      showNotice('공유 링크를 회수했습니다.');
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : '공유 링크 회수에 실패했습니다.');
     }
   };
 
@@ -362,6 +410,7 @@ export default function App() {
 
     setWorkspaceState(result.state);
     setSharedWorkspaceLink(null);
+    setOwnedShareAccess(null);
     setAnalysisStatus(result.state.analysisResult ? 'completed' : 'idle');
     setActiveView('merge');
     setActiveSection(7);
@@ -514,10 +563,12 @@ export default function App() {
           onExportWorkspace={exportWorkspace}
           onImportWorkspace={importWorkspace}
           onReanalyze={reanalyze}
+          onRevokeSharedWorkspace={revokeCurrentSharedWorkspace}
           onShareWorkspace={shareWorkspace}
           onViewChange={setActiveView}
           projectTitle={workspaceState.project.title}
           qualityLevel={qualityLevel}
+          canRevokeSharedWorkspace={Boolean(ownedShareAccess?.manageToken)}
           sharedMode={Boolean(sharedWorkspaceId)}
         />
         <input
@@ -669,6 +720,21 @@ function waitForLoadingTime(milliseconds: number) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
   });
+}
+
+function getShareUrlWorkspaceId(url: string) {
+  try {
+    return new URL(url).searchParams.get('ws');
+  } catch {
+    return null;
+  }
+}
+
+function removeSharedWorkspaceIdFromUrl() {
+  const url = new URL(window.location.href);
+
+  url.searchParams.delete('ws');
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 function createDecisionOverrideLog(

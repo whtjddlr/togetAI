@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { parseWorkspaceImport } from '@/planmerge/lib/localWorkspace';
@@ -6,6 +7,15 @@ import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 
 const RATE_LIMIT = { limit: 5, windowMs: 60_000 };
 const MAX_SNAPSHOT_CHARS = 1_500_000;
+const DEFAULT_SHARE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
+
+function createManageToken() {
+  return randomBytes(32).toString('hex');
+}
+
+function hashManageToken(manageToken: string) {
+  return createHash('sha256').update(manageToken).digest('hex');
+}
 
 export async function POST(request: Request) {
   const rateLimit = await checkRateLimit('workspaces-create', getClientKey(request), RATE_LIMIT);
@@ -41,15 +51,26 @@ export async function POST(request: Request) {
   }
 
   try {
+    const manageToken = createManageToken();
+    const expiresAt = new Date(Date.now() + DEFAULT_SHARE_EXPIRY_MS);
     const workspace = await getDb().sharedWorkspace.create({
       data: {
         title: parsed.state.project.title.slice(0, 200) || 'PlanMerge 워크스페이스',
         snapshot: parsed.state as unknown as Prisma.InputJsonValue,
+        expiresAt,
+        manageTokenHash: hashManageToken(manageToken),
       },
-      select: { id: true },
+      select: { id: true, expiresAt: true },
     });
 
-    return NextResponse.json({ id: workspace.id }, { status: 201 });
+    return NextResponse.json(
+      {
+        id: workspace.id,
+        manageToken,
+        expiresAt: (workspace.expiresAt ?? expiresAt).toISOString(),
+      },
+      { status: 201 },
+    );
   } catch (error) {
     console.error('[workspaces] create failed:', error);
 
