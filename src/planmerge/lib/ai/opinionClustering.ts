@@ -191,6 +191,8 @@ const CATEGORY_KEYWORDS: Array<{
 
 const OPINION_CLUSTER_STORAGE_KEY = 'planmerge_opinion_clusters_v1';
 
+export type OpinionClusterStateScope = 'local' | `shared:${string}`;
+
 export type OpinionClusterState = {
   analysisRunId: number;
   resultsByDecisionBlock: Record<string, OpinionClusteringResult>;
@@ -521,12 +523,15 @@ export async function generateOpinionClusters(payload: OpinionClusteringPayload)
   }
 }
 
-export function loadOpinionClusterState(analysisRunId = 0): OpinionClusterState {
+export function loadOpinionClusterState(
+  analysisRunId = 0,
+  scope: OpinionClusterStateScope = 'local',
+): OpinionClusterState {
   if (typeof window === 'undefined') {
     return createEmptyOpinionClusterState(analysisRunId);
   }
 
-  const rawState = window.localStorage.getItem(OPINION_CLUSTER_STORAGE_KEY);
+  const rawState = window.localStorage.getItem(opinionClusterStorageKey(scope));
 
   if (!rawState) {
     return createEmptyOpinionClusterState(analysisRunId);
@@ -568,12 +573,19 @@ export function loadOpinionClusterState(analysisRunId = 0): OpinionClusterState 
   }
 }
 
-export function saveOpinionClusterState(state: OpinionClusterState) {
+export function saveOpinionClusterState(
+  state: OpinionClusterState,
+  scope: OpinionClusterStateScope = 'local',
+) {
   if (typeof window === 'undefined') {
     return;
   }
 
-  window.localStorage.setItem(OPINION_CLUSTER_STORAGE_KEY, JSON.stringify(state));
+  window.localStorage.setItem(opinionClusterStorageKey(scope), JSON.stringify(state));
+}
+
+function opinionClusterStorageKey(scope: OpinionClusterStateScope) {
+  return `${OPINION_CLUSTER_STORAGE_KEY}:${scope}`;
 }
 
 export function createLocalFallbackClusters(payload: OpinionClusteringPayload): OpinionCluster[] {

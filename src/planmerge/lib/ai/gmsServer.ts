@@ -5,21 +5,15 @@ export type GmsConfig = {
 };
 
 type GmsResponseContent = {
-  text?: string;
-};
-
-type GmsResponseOutput = {
-  content?: GmsResponseContent[];
+  text?: unknown;
 };
 
 type GmsResponsesApiResponse = {
-  output_text?: string;
-  output?: GmsResponseOutput[];
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
+  status?: unknown;
+  incomplete_details?: unknown;
+  output_text?: unknown;
+  output?: unknown;
+  choices?: unknown;
 };
 
 const DEFAULT_GMS_API_URL = 'https://gms.ssafy.io/gmsapi/api.openai.com/v1/responses';
@@ -60,22 +54,48 @@ export function extractJsonObject(content: string) {
   throw new Error('GMS response did not contain a JSON object.');
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function extractIncompleteReason(data: GmsResponsesApiResponse) {
+  const details = data.incomplete_details;
+
+  if (isRecord(details) && typeof details.reason === 'string' && details.reason.trim()) {
+    return details.reason.trim();
+  }
+
+  return 'unknown';
+}
+
 function extractOutputText(data: GmsResponsesApiResponse) {
-  if (data.output_text) {
+  if (typeof data.output_text === 'string' && data.output_text) {
     return data.output_text;
   }
 
-  const outputText = data.output
-    ?.flatMap((output) => output.content ?? [])
+  const outputText = (Array.isArray(data.output) ? data.output : [])
+    .flatMap((output): GmsResponseContent[] => {
+      if (!isRecord(output) || !Array.isArray(output.content)) {
+        return [];
+      }
+
+      return output.content
+        .filter(isRecord)
+        .map((content) => ({ text: content.text }));
+    })
     .map((content) => content.text)
-    .filter((text): text is string => Boolean(text))
+    .filter((text): text is string => typeof text === 'string' && text.length > 0)
     .join('');
 
   if (outputText) {
     return outputText;
   }
 
-  const chatContent = data.choices?.[0]?.message?.content;
+  const firstChoice = Array.isArray(data.choices) ? data.choices[0] : undefined;
+  const message = isRecord(firstChoice) && isRecord(firstChoice.message)
+    ? firstChoice.message
+    : undefined;
+  const chatContent = typeof message?.content === 'string' ? message.content : undefined;
   if (chatContent) {
     return chatContent;
   }
@@ -127,7 +147,18 @@ export async function callGmsJson<T>(
     throw new Error(`GMS API failed with ${response.status}: ${errorText.slice(0, 300)}`);
   }
 
-  const data = await response.json() as GmsResponsesApiResponse;
+  const responseBody: unknown = await response.json();
+
+  if (!isRecord(responseBody)) {
+    throw new Error('GMS API response envelope was not an object.');
+  }
+
+  const data: GmsResponsesApiResponse = responseBody;
+
+  if (data.status === 'incomplete') {
+    throw new Error(`GMS response incomplete: ${extractIncompleteReason(data)}`);
+  }
+
   const content = extractOutputText(data);
 
   return JSON.parse(extractJsonObject(content)) as T;

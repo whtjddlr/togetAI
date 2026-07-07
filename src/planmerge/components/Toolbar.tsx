@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppView } from '../types/navigation';
+import type { QualityLevel } from '../lib/analysisQuality';
 
 type ToolbarProps = {
   activeView: AppView;
@@ -16,6 +17,7 @@ type ToolbarProps = {
   onShareWorkspace: () => void;
   onViewChange: (view: AppView) => void;
   projectTitle: string;
+  qualityLevel: QualityLevel | null;
   sharedMode: boolean;
 };
 
@@ -62,10 +64,19 @@ export function Toolbar({
   onShareWorkspace,
   onViewChange,
   projectTitle,
+  qualityLevel,
   sharedMode,
 }: ToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
+  const qualityGateBlocked = qualityLevel === 'blocked';
+  const qualityGateBlockedTitle = '품질 게이트 차단: 구조 오류 또는 근거 부족을 먼저 해결해야 합니다.';
+  const shareDisabled = !hasMergeResult || qualityGateBlocked;
+  const shareDisabledTitle = !hasMergeResult
+    ? '분석 결과가 있어야 공유할 수 있습니다.'
+    : qualityGateBlocked
+      ? qualityGateBlockedTitle
+      : undefined;
 
   useEffect(() => {
     if (!menuOpen) {
@@ -134,8 +145,9 @@ export function Toolbar({
                 approvalStatus === 'approved'
                   ? 'bg-emerald-600 hover:bg-emerald-700'
                   : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-              disabled={analysisStatus === 'analyzing'}
+              } disabled:cursor-not-allowed disabled:bg-gray-300`}
+              disabled={analysisStatus === 'analyzing' || qualityGateBlocked}
+              title={qualityGateBlocked ? qualityGateBlockedTitle : undefined}
               onClick={onApprove}
             >
               {approvalStatus === 'approved' ? '승인 완료' : '선택안 승인'}
@@ -161,7 +173,9 @@ export function Toolbar({
               {!sharedMode && (
                 <button
                   type="button"
-                  className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-400"
+                  disabled={shareDisabled}
+                  title={shareDisabledTitle}
                   onClick={() => runMenuAction(onShareWorkspace)}
                 >
                   팀 공유 링크 만들기

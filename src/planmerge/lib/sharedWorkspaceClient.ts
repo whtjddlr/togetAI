@@ -1,10 +1,15 @@
 import type { AnonymousOpinion } from '../data/mergeResult';
-import type { LocalWorkspaceState } from './localWorkspace';
+import { parseWorkspaceImport, type LocalWorkspaceState } from './localWorkspace';
 
 export type SharedParticipation = {
   votes: Record<string, number>;
   myOptionId?: string;
   opinions: AnonymousOpinion[];
+};
+
+export type SharedWorkspaceLoadResult = {
+  state: LocalWorkspaceState;
+  warnings: string[];
 };
 
 type ParticipationResponse = {
@@ -74,20 +79,45 @@ export async function createSharedWorkspace(exportJson: string): Promise<{ id: s
   return { id: data.id };
 }
 
-export async function fetchSharedWorkspace(workspaceId: string): Promise<LocalWorkspaceState | null> {
+export async function fetchSharedWorkspace(workspaceId: string): Promise<SharedWorkspaceLoadResult | null> {
+  const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`).catch(() => null);
+
+  if (!response?.ok) {
+    return null;
+  }
+
+  let data: { workspace?: unknown };
+
   try {
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json() as { workspace?: LocalWorkspaceState };
-
-    return data.workspace ?? null;
+    data = await response.json() as { workspace?: unknown };
   } catch {
     return null;
   }
+
+  if (data.workspace === undefined) {
+    return null;
+  }
+
+  try {
+    const rawWorkspace = JSON.stringify(data.workspace);
+
+    if (!rawWorkspace) {
+      throw new Error('invalid shared workspace payload');
+    }
+
+    const parsed = parseWorkspaceImport(rawWorkspace);
+
+    if (parsed.valid) {
+      return {
+        state: parsed.state,
+        warnings: parsed.warnings,
+      };
+    }
+  } catch {
+    // Fall through to the validation error below.
+  }
+
+  throw new Error('공유 워크스페이스 데이터가 검증에 실패했습니다.');
 }
 
 export async function fetchBlockParticipation(

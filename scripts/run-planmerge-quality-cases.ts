@@ -22,6 +22,8 @@ type CaseExpectation = {
   minFinalSections?: number;
   requireAllInputDraftsUsed?: boolean;
   requireConflict?: boolean;
+  requireNoConflict?: boolean;
+  requireHumanReview?: boolean;
   requireNoMissingSections?: boolean;
   requireMissingSections?: boolean;
 };
@@ -100,7 +102,7 @@ const completeSectionDrafts = [
     taskTitle: '핵심 기능',
     aiModel: 'ChatGPT',
   }),
-  draft('complete-mvp', 'MVP 범위는 텍스트 붙여넣기와 병합 리포트 생성까지만 포함한다.', {
+  draft('complete-mvp', 'MVP 범위는 텍스트 붙여넣기와 병합 리포트 생성까지만 포함하고 초기 검증에 집중한다.', {
     taskTitle: 'MVP 범위',
     aiModel: 'Claude',
   }),
@@ -165,7 +167,7 @@ const cases: QualityCase[] = [
     id: 'conflicting-mvp-scope',
     title: 'MVP 범위 충돌은 Decision Block에서 review로 드러나야 한다.',
     payload: payload([
-      draft('scope-1', 'MVP는 텍스트 붙여넣기와 병합 리포트 생성까지만 포함한다.', {
+      draft('scope-1', 'MVP는 텍스트 붙여넣기와 병합 리포트 생성까지만 포함하고 초기 검증에 집중한다.', {
         taskTitle: 'MVP 범위',
         aiModel: 'ChatGPT',
       }),
@@ -173,7 +175,7 @@ const cases: QualityCase[] = [
         taskTitle: 'MVP 범위',
         aiModel: 'Claude',
       }),
-      draft('scope-3', '초기부터 실시간 공동 편집 기능까지 넣어야 협업 제품답다.', {
+      draft('scope-3', '초기부터 실시간 공동 편집 기능까지 넣어야 협업 제품답지만 검증 목표와는 충돌한다.', {
         taskTitle: 'MVP 범위',
         aiModel: 'Gemini',
       }),
@@ -187,6 +189,37 @@ const cases: QualityCase[] = [
       minFinalSections: 1,
       requireAllInputDraftsUsed: true,
       requireConflict: true,
+      requireMissingSections: true,
+    },
+  },
+  {
+    id: 'project-forbidden-external-doc-integration',
+    title: '프로젝트 금지 방향의 외부 문서 연동은 Notion 제안을 충돌로 표시해야 한다.',
+    payload: payload(
+      [
+        draft('external-doc-safe', 'MVP 범위는 텍스트 붙여넣기와 Markdown 내보내기까지만 포함한다.', {
+          taskTitle: 'MVP 범위',
+          aiModel: 'ChatGPT',
+        }),
+        draft('external-doc-notion', 'MVP 범위에 Notion 연동을 포함해 외부 문서 도구로 바로 보낼 수 있어야 한다.', {
+          taskTitle: 'MVP 범위',
+          aiModel: 'Claude',
+        }),
+      ],
+      {
+        forbiddenDirection: '초기 MVP에서 외부 문서 연동은 제외한다.',
+      },
+    ),
+    expect: {
+      parse: 'valid',
+      level: 'review',
+      maxScore: 79,
+      minIdeas: 2,
+      minDecisionBlocks: 1,
+      minFinalSections: 1,
+      requireAllInputDraftsUsed: true,
+      requireConflict: true,
+      requireHumanReview: true,
       requireMissingSections: true,
     },
   },
@@ -215,6 +248,28 @@ const cases: QualityCase[] = [
     },
   },
   {
+    id: 'thin-evidence-human-review',
+    title: '40자 미만 단일 초안은 충돌 없이도 낮은 신뢰도 검토 대상으로 올라야 한다.',
+    payload: payload([
+      draft('thin-1', '핵심 기능은 요약 비교다.', {
+        taskTitle: '핵심 기능',
+        aiModel: 'ChatGPT',
+      }),
+    ]),
+    expect: {
+      parse: 'valid',
+      level: 'review',
+      maxScore: 68,
+      minIdeas: 1,
+      minDecisionBlocks: 1,
+      minFinalSections: 1,
+      requireAllInputDraftsUsed: true,
+      requireNoConflict: true,
+      requireHumanReview: true,
+      requireMissingSections: true,
+    },
+  },
+  {
     id: 'multi-model-source-coverage',
     title: '여러 AI 모델의 초안이 모두 출처로 반영되어야 한다.',
     payload: payload([
@@ -226,15 +281,15 @@ const cases: QualityCase[] = [
         taskTitle: '핵심 기능',
         aiModel: 'Claude',
       }),
-      draft('model-gemini', '리스크는 출처 없는 AI 판단을 사용자가 그대로 믿는 것이다.', {
+      draft('model-gemini', '리스크는 출처 없는 AI 판단을 사용자가 그대로 믿는 것이며 검토 로그가 필요하다.', {
         taskTitle: '리스크',
         aiModel: 'Gemini',
       }),
-      draft('model-cursor', 'MVP 범위는 붙여넣기 입력과 결과 조회 화면으로 제한한다.', {
+      draft('model-cursor', 'MVP 범위는 붙여넣기 입력과 결과 조회 화면으로 제한해 초기 검증에 맞춘다.', {
         taskTitle: 'MVP 범위',
         aiModel: 'Cursor',
       }),
-      draft('model-other', '성공 지표는 충돌 의견 발견 수와 최종 수정 횟수 감소다.', {
+      draft('model-other', '성공 지표는 충돌 의견 발견 수와 최종 수정 횟수 감소를 팀 의사결정에 반영한다.', {
         taskTitle: '성공 지표',
         aiModel: 'Other',
       }),
@@ -332,6 +387,7 @@ function runCase(testCase: QualityCase): CaseSummary {
   const quality = evaluateAnalysisQuality(parsed.payload, result);
   const usedDraftCount = quality.sourceCoverageByDraft.filter((draftCoverage) => draftCoverage.ideaCount > 0).length;
   const conflictBlockCount = result.decisionBlocks.filter((block) => block.conflictLevel !== 'none').length;
+  const humanReviewBlockCount = result.decisionBlocks.filter((block) => block.needsHumanReview).length;
 
   if (!validation.valid) {
     failures.push(`schema invalid: ${validation.errors.join('; ')}`);
@@ -375,6 +431,14 @@ function runCase(testCase: QualityCase): CaseSummary {
     failures.push('expected at least one conflict decision block');
   }
 
+  if (testCase.expect.requireNoConflict && conflictBlockCount > 0) {
+    failures.push(`expected no conflict decision blocks, got ${conflictBlockCount}`);
+  }
+
+  if (testCase.expect.requireHumanReview && humanReviewBlockCount === 0) {
+    failures.push('expected at least one needsHumanReview decision block');
+  }
+
   if (testCase.expect.requireNoMissingSections && result.missingSections.length > 0) {
     failures.push(`expected no missing sections, got ${result.missingSections.length}`);
   }
@@ -397,6 +461,7 @@ function runCase(testCase: QualityCase): CaseSummary {
         `sections=${result.finalDocumentSections.length}`,
         `missing=${result.missingSections.length}`,
         `conflicts=${conflictBlockCount}`,
+        `review=${humanReviewBlockCount}`,
       ].join(' '),
   };
 }
