@@ -832,12 +832,36 @@ export function validatePlanMergeAnalysis(
   };
 }
 
+// 한계: 서버 보강 블록과 로컬 하네스 전용의 키워드 휴리스틱이다. 아래 그룹에
+// 없는 금지 방향은 감지하지 못한다. 의미 기반 충돌 판정은 merge 프롬프트(모델)가
+// 담당하고, 이 함수는 모델이 누락한 아이디어를 보강하거나 폴백할 때의 안전판으로만 쓴다.
+export function conflictsWithForbiddenDirection(forbiddenDirection: string, idea: NormalizedIdea) {
+  if (idea.intent === 'warn') {
+    return false;
+  }
+
+  const haystack = `${idea.topic} ${idea.normalizedText} ${idea.sourceExcerpt}`.toLowerCase();
+  const forbidden = forbiddenDirection.toLowerCase();
+  const keywordGroups = [
+    ['실시간 공동 편집', '공동 편집'],
+    ['외부 문서 연동', '문서 연동', 'notion'],
+    ['slack', '공유'],
+    ['팀 초대', '초대'],
+    ['연동'],
+  ];
+
+  return keywordGroups.some((keywords) =>
+    keywords.some((keyword) => forbidden.includes(keyword.toLowerCase())) &&
+    keywords.some((keyword) => haystack.includes(keyword.toLowerCase())),
+  );
+}
+
 export function runLocalPlanMergeHarness(payload: PlanMergeAnalysisPayload): PlanMergeAnalysisResult {
   const normalizedIdeas = payload.drafts
     .filter((draft) => draft.rawText.trim())
     .map((draft, index) => createLocalNormalizedIdea(draft, index));
 
-  const decisionBlocks = createLocalDecisionBlocks(normalizedIdeas);
+  const decisionBlocks = createLocalDecisionBlocks(payload.project.forbiddenDirection, normalizedIdeas);
   const finalDocumentSections = documentSectionDefinitions
     .map((section) => {
       const relatedBlocks = decisionBlocks.filter((block) => block.sectionKey === section.key);
@@ -890,7 +914,7 @@ function createLocalNormalizedIdea(draft: LocalDraftSubmission, index: number): 
   };
 }
 
-function createLocalDecisionBlocks(ideas: NormalizedIdea[]): ProtocolDecisionBlock[] {
+function createLocalDecisionBlocks(forbiddenDirection: string, ideas: NormalizedIdea[]): ProtocolDecisionBlock[] {
   const ideasBySection = new Map<DocumentSectionKey, NormalizedIdea[]>();
 
   ideas.forEach((idea) => {
@@ -898,11 +922,11 @@ function createLocalDecisionBlocks(ideas: NormalizedIdea[]): ProtocolDecisionBlo
   });
 
   return Array.from(ideasBySection.entries()).map(([sectionKey, sectionIdeas], index) => {
-    const selectedIdea = chooseSelectedIdea(sectionIdeas);
+    const selectedIdea = chooseSelectedIdea(forbiddenDirection, sectionIdeas);
     const options = sectionIdeas.map((idea, optionIndex) => {
       const optionType = idea.id === selectedIdea.id
         ? 'selected'
-        : isConflictIdea(idea)
+        : conflictsWithForbiddenDirection(forbiddenDirection, idea)
           ? 'conflict'
           : 'alternative';
 
@@ -917,23 +941,24 @@ function createLocalDecisionBlocks(ideas: NormalizedIdea[]): ProtocolDecisionBlo
     });
 
     const conflictOptions = options.filter((option) => option.optionType === 'conflict');
+    const confidence = clamp(selectedIdea.confidence, 0.55, conflictOptions.length ? 0.68 : 0.78);
 
     return {
       id: `decision_${index + 1}`,
       sectionKey,
       topic: inferTopic(sectionKey),
       selectedOptionId: options.find((option) => option.optionType === 'selected')?.id ?? options[0].id,
-      selectionReason: '프로젝트 기준과 금지 방향에 가장 직접적으로 맞는 아이디어를 선택했습니다.',
-      confidence: conflictOptions.length ? 0.68 : 0.78,
+      selectionReason: '로컬 폴백 규칙으로 금지 방향과 충돌하지 않는 첫 번째 아이디어를 선택했습니다. 실제 기준 부합 여부는 사람이 확인해야 합니다.',
+      confidence,
       conflictLevel: conflictOptions.length ? 'medium' : 'none',
-      needsHumanReview: conflictOptions.length > 0,
+      needsHumanReview: conflictOptions.length > 0 || confidence < 0.65,
       options,
     };
   });
 }
 
-function chooseSelectedIdea(ideas: NormalizedIdea[]) {
-  return ideas.find((idea) => !isConflictIdea(idea)) ?? ideas[0];
+function chooseSelectedIdea(forbiddenDirection: string, ideas: NormalizedIdea[]) {
+  return ideas.find((idea) => !conflictsWithForbiddenDirection(forbiddenDirection, idea)) ?? ideas[0];
 }
 
 function inferSectionKey(text: string): DocumentSectionKey {
@@ -1016,12 +1041,6 @@ function inferIntent(sectionKey: DocumentSectionKey, text: string): NormalizedId
   return 'propose';
 }
 
-function isConflictIdea(idea: NormalizedIdea) {
-  const lowerText = idea.normalizedText.toLowerCase();
-
-  return containsAny(lowerText, ['실시간 공동 편집', 'notion', '노션', 'slack', '슬랙', '연동까지', '나중에 하자']);
-}
-
 function inferConflictSeverity(idea: NormalizedIdea): 'low' | 'medium' | 'high' {
   const lowerText = idea.normalizedText.toLowerCase();
 
@@ -1042,4 +1061,8 @@ function normalizeSentence(text: string) {
 
 function containsAny(text: string, keywords: string[]) {
   return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }

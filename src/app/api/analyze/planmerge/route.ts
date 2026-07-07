@@ -3,6 +3,7 @@ import {
   buildDraftNormalizePrompt,
   buildMergeNormalizedIdeasPrompt,
   buildPlanMergeRepairPrompt,
+  conflictsWithForbiddenDirection,
   documentSectionDefinitions,
   parsePlanMergeAnalysisPayload,
   runLocalPlanMergeHarness,
@@ -435,30 +436,6 @@ function inferConflictLevelFromOptions(options: ProtocolDecisionOption[]): Proto
   if (conflictSeverities.includes('medium')) return 'medium';
   if (conflictSeverities.includes('low')) return 'low';
   return 'none';
-}
-
-// 한계: 서버 보강 블록 전용의 키워드 휴리스틱이다. 아래 그룹에 없는 금지 방향은
-// 감지하지 못한다. 의미 기반 충돌 판정은 merge 프롬프트(모델)가 담당하고,
-// 이 함수는 모델이 누락한 아이디어를 서버가 보강할 때의 안전판으로만 쓰인다.
-function conflictsWithForbiddenDirection(forbiddenDirection: string, idea: NormalizedIdea) {
-  if (idea.intent === 'warn') {
-    return false;
-  }
-
-  const haystack = `${idea.topic} ${idea.normalizedText} ${idea.sourceExcerpt}`.toLowerCase();
-  const forbidden = forbiddenDirection.toLowerCase();
-  const keywordGroups = [
-    ['실시간 공동 편집', '공동 편집'],
-    ['외부 문서 연동', '문서 연동', 'notion'],
-    ['slack', '공유'],
-    ['팀 초대', '초대'],
-    ['연동'],
-  ];
-
-  return keywordGroups.some((keywords) =>
-    keywords.some((keyword) => forbidden.includes(keyword.toLowerCase())) &&
-    keywords.some((keyword) => haystack.includes(keyword.toLowerCase())),
-  );
 }
 
 function normalizeTopic(topic: string) {

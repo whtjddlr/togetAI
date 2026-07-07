@@ -1,6 +1,6 @@
 'use client';
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
 import { DocumentContent } from './components/DocumentContent';
@@ -25,6 +25,8 @@ import { generatePlanMergeAnalysis } from './lib/ai/planmergeAnalysisClient';
 import { createSharedWorkspace, fetchSharedWorkspace } from './lib/sharedWorkspaceClient';
 import { createDocumentSectionsFromAnalysis } from './lib/analysisViewModel';
 import { applyDecisionOptionOverride } from './lib/analysisOverride';
+import { evaluateAnalysisQuality, type QualityLevel } from './lib/analysisQuality';
+import { buildMarkdownExport } from './lib/exportMarkdown';
 import {
   documentSectionDefinitions,
   type ProtocolDecisionBlock,
@@ -53,6 +55,28 @@ export default function App() {
   const displayedIdeaCount = workspaceState.analysisResult?.normalizedIdeas.length
     ?? mergeSections.filter((section) => section.content.trim()).length;
   const sampleWorkspace = isSampleWorkspaceState(workspaceState);
+  const qualityLevel = useMemo<QualityLevel | null>(() => {
+    if (!workspaceState.analysisResult) {
+      return null;
+    }
+
+    return evaluateAnalysisQuality(
+      { project: workspaceState.project, drafts: workspaceState.drafts },
+      workspaceState.analysisResult,
+    ).level;
+  }, [workspaceState.analysisResult, workspaceState.drafts, workspaceState.project]);
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+
+    if (noticeTimeoutRef.current) {
+      window.clearTimeout(noticeTimeoutRef.current);
+    }
+
+    noticeTimeoutRef.current = window.setTimeout(() => {
+      setNotice(null);
+    }, 2400);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,20 +101,35 @@ export default function App() {
     }
 
     void (async () => {
-      const shared = await fetchSharedWorkspace(wsId);
+      try {
+        const shared = await fetchSharedWorkspace(wsId);
 
-      if (cancelled) {
-        return;
-      }
+        if (cancelled) {
+          return;
+        }
 
-      if (shared) {
-        setSharedWorkspaceId(wsId);
-        setSharedWorkspaceLink(null);
-        setWorkspaceState(shared);
-        setAnalysisStatus(shared.analysisResult ? 'completed' : 'idle');
-        setHasLoadedWorkspace(true);
-      } else {
-        setNotice('공유 워크스페이스를 불러오지 못해 로컬 데이터를 표시합니다.');
+        if (shared) {
+          setSharedWorkspaceId(wsId);
+          setSharedWorkspaceLink(null);
+          setWorkspaceState(shared.state);
+          setAnalysisStatus(shared.state.analysisResult ? 'completed' : 'idle');
+          setHasLoadedWorkspace(true);
+
+          if (shared.warnings.length > 0) {
+            showNotice(`공유 워크스페이스를 불러왔습니다. ${shared.warnings.length}개 항목은 보정했습니다.`);
+          }
+
+          return;
+        }
+
+        showNotice('공유 워크스페이스를 불러오지 못해 로컬 데이터를 표시합니다.');
+        loadLocal();
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        showNotice(error instanceof Error ? error.message : '공유 워크스페이스를 불러오지 못해 로컬 데이터를 표시합니다.');
         loadLocal();
       }
     })();
@@ -98,7 +137,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showNotice]);
 
   useEffect(() => {
     // 공유 모드에서는 남의 워크스페이스로 내 로컬 데이터를 덮어쓰지 않는다.
@@ -114,18 +153,6 @@ export default function App() {
       window.clearTimeout(noticeTimeoutRef.current);
     }
   }, []);
-
-  const showNotice = (message: string) => {
-    setNotice(message);
-
-    if (noticeTimeoutRef.current) {
-      window.clearTimeout(noticeTimeoutRef.current);
-    }
-
-    noticeTimeoutRef.current = window.setTimeout(() => {
-      setNotice(null);
-    }, 2400);
-  };
 
   const copyShareLink = async (url: string) => {
     try {
@@ -143,6 +170,11 @@ export default function App() {
 
   const approveDecision = () => {
     if (analysisStatus === 'analyzing') {
+      return;
+    }
+
+    if (qualityLevel === 'blocked') {
+      showNotice('품질 게이트가 차단되어 선택안을 승인할 수 없습니다.');
       return;
     }
 
@@ -233,16 +265,11 @@ export default function App() {
   };
 
   const exportMarkdown = () => {
-    const markdown = [
-      '# AI 공동 기획서 병합 도구 기획서',
-      '',
-      ...mergeSections.map((section) => [
-        `## ${section.number}. ${section.title}`,
-        '',
-        section.content || '내용 없음',
-        '',
-      ].join('\n')),
-    ].join('\n');
+    const markdown = buildMarkdownExport({
+      projectTitle: workspaceState.project.title,
+      sections: mergeSections,
+      analysisResult: workspaceState.analysisResult,
+    });
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -271,6 +298,16 @@ export default function App() {
   };
 
   const shareWorkspace = async () => {
+    if (!workspaceState.analysisResult) {
+      showNotice('분석 결과가 있어야 팀 공유 링크를 만들 수 있습니다.');
+      return;
+    }
+
+    if (qualityLevel === 'blocked') {
+      showNotice('품질 게이트가 차단되어 공유 링크를 만들 수 없습니다.');
+      return;
+    }
+
     try {
       const { id } = await createSharedWorkspace(createWorkspaceExport(workspaceState));
       const nextShareUrl = `${window.location.origin}${window.location.pathname}?ws=${id}`;
@@ -465,6 +502,7 @@ export default function App() {
           onShareWorkspace={shareWorkspace}
           onViewChange={setActiveView}
           projectTitle={workspaceState.project.title}
+          qualityLevel={qualityLevel}
           sharedMode={Boolean(sharedWorkspaceId)}
         />
         <input

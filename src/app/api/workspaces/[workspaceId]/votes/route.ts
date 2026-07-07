@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import {
-  findSharedWorkspaceId,
   getBlockParticipation,
+  getSharedDecisionBlockTarget,
   isValidWorkspaceId,
   readRequiredString,
 } from '@/server/sharedWorkspace';
@@ -60,8 +60,14 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    if (!(await findSharedWorkspaceId(workspaceId))) {
+    const target = await getSharedDecisionBlockTarget(workspaceId, decisionBlockId);
+
+    if (target.status === 'workspace_not_found') {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
+    }
+
+    if (target.status !== 'found' || !target.votableOptionIds.includes(optionId)) {
+      return NextResponse.json({ errors: ['존재하지 않는 결정 블록 또는 선택지입니다.'] }, { status: 400 });
     }
 
     // 참여자(anonymousKey)당 블록별 1표. 다시 투표하면 선택만 바뀐다.

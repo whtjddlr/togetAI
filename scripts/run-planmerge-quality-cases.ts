@@ -22,6 +22,7 @@ type CaseExpectation = {
   minFinalSections?: number;
   requireAllInputDraftsUsed?: boolean;
   requireConflict?: boolean;
+  requireHumanReview?: boolean;
   requireNoMissingSections?: boolean;
   requireMissingSections?: boolean;
 };
@@ -191,6 +192,37 @@ const cases: QualityCase[] = [
     },
   },
   {
+    id: 'project-forbidden-external-doc-integration',
+    title: '프로젝트 금지 방향의 외부 문서 연동은 Notion 제안을 충돌로 표시해야 한다.',
+    payload: payload(
+      [
+        draft('external-doc-safe', 'MVP 범위는 텍스트 붙여넣기와 Markdown 내보내기까지만 포함한다.', {
+          taskTitle: 'MVP 범위',
+          aiModel: 'ChatGPT',
+        }),
+        draft('external-doc-notion', 'MVP 범위에 Notion 연동을 포함해 외부 문서 도구로 바로 보낼 수 있어야 한다.', {
+          taskTitle: 'MVP 범위',
+          aiModel: 'Claude',
+        }),
+      ],
+      {
+        forbiddenDirection: '초기 MVP에서 외부 문서 연동은 제외한다.',
+      },
+    ),
+    expect: {
+      parse: 'valid',
+      level: 'review',
+      maxScore: 79,
+      minIdeas: 2,
+      minDecisionBlocks: 1,
+      minFinalSections: 1,
+      requireAllInputDraftsUsed: true,
+      requireConflict: true,
+      requireHumanReview: true,
+      requireMissingSections: true,
+    },
+  },
+  {
     id: 'prompt-injection-text',
     title: '초안 안의 지시문은 프로토콜 구조를 깨지 않아야 한다.',
     payload: payload([
@@ -332,6 +364,7 @@ function runCase(testCase: QualityCase): CaseSummary {
   const quality = evaluateAnalysisQuality(parsed.payload, result);
   const usedDraftCount = quality.sourceCoverageByDraft.filter((draftCoverage) => draftCoverage.ideaCount > 0).length;
   const conflictBlockCount = result.decisionBlocks.filter((block) => block.conflictLevel !== 'none').length;
+  const humanReviewBlockCount = result.decisionBlocks.filter((block) => block.needsHumanReview).length;
 
   if (!validation.valid) {
     failures.push(`schema invalid: ${validation.errors.join('; ')}`);
@@ -375,6 +408,10 @@ function runCase(testCase: QualityCase): CaseSummary {
     failures.push('expected at least one conflict decision block');
   }
 
+  if (testCase.expect.requireHumanReview && humanReviewBlockCount === 0) {
+    failures.push('expected at least one needsHumanReview decision block');
+  }
+
   if (testCase.expect.requireNoMissingSections && result.missingSections.length > 0) {
     failures.push(`expected no missing sections, got ${result.missingSections.length}`);
   }
@@ -397,6 +434,7 @@ function runCase(testCase: QualityCase): CaseSummary {
         `sections=${result.finalDocumentSections.length}`,
         `missing=${result.missingSections.length}`,
         `conflicts=${conflictBlockCount}`,
+        `review=${humanReviewBlockCount}`,
       ].join(' '),
   };
 }
