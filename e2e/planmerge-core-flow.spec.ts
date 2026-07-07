@@ -25,6 +25,10 @@ test.describe.serial('PlanMerge keyless fallback core flow', () => {
       level: 1,
       name: /^회의록 기반 액션아이템 정리 SaaS 기획서$/,
     })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^선택안 승인$/ })).toBeVisible();
+    await openToolbarMenu(page);
+    await expect(page.getByRole('button', { name: /^다시 분석$/ })).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await navigation.getByRole('button', { name: /^초안 입력$/ }).click();
     const analysisResponsePromise = page.waitForResponse((response) =>

@@ -18,7 +18,32 @@ export type SharedWorkspaceCreateResult = {
   expiresAt: string;
 };
 
+type SharedWorkspaceRequestErrorOptions = {
+  status?: number;
+  retryAfter?: string;
+};
+
 export const SHARED_LINK_UNAVAILABLE_MESSAGE = '공유 링크가 만료되었거나 회수되었습니다.';
+export const SHARED_RATE_LIMIT_MESSAGE = '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.';
+export const SHARED_PARTICIPATION_FAILED_MESSAGE = '처리에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+
+export class SharedWorkspaceRequestError extends Error {
+  readonly status?: number;
+  readonly retryAfter?: string;
+
+  constructor(message: string, options: SharedWorkspaceRequestErrorOptions = {}) {
+    super(message);
+    this.name = 'SharedWorkspaceRequestError';
+
+    if (options.status !== undefined) {
+      this.status = options.status;
+    }
+
+    if (options.retryAfter !== undefined) {
+      this.retryAfter = options.retryAfter;
+    }
+  }
+}
 
 type ParticipationResponse = {
   votes?: Record<string, number>;
@@ -69,10 +94,6 @@ async function readErrorMessage(response: Response, fallback: string) {
   }
 }
 
-function isSharedLinkUnavailableError(error: unknown) {
-  return error instanceof Error && error.message === SHARED_LINK_UNAVAILABLE_MESSAGE;
-}
-
 async function readSharedLinkUnavailableMessage(response: Response) {
   const message = await readErrorMessage(response, SHARED_LINK_UNAVAILABLE_MESSAGE);
 
@@ -81,9 +102,52 @@ async function readSharedLinkUnavailableMessage(response: Response) {
     : SHARED_LINK_UNAVAILABLE_MESSAGE;
 }
 
-async function throwIfSharedLinkUnavailable(response: Response) {
+async function fetchParticipationResponse(url: string, init?: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new SharedWorkspaceRequestError(SHARED_PARTICIPATION_FAILED_MESSAGE);
+  }
+}
+
+function getRetryAfter(response: Response) {
+  return response.headers.get('Retry-After') ?? undefined;
+}
+
+function throwIfSharedParticipationFailed(response: Response) {
+  if (response.ok) {
+    return;
+  }
+
+  if (response.status === 429) {
+    const retryAfter = getRetryAfter(response);
+
+    throw new SharedWorkspaceRequestError(SHARED_RATE_LIMIT_MESSAGE, {
+      status: response.status,
+      ...(retryAfter !== undefined ? { retryAfter } : {}),
+    });
+  }
+
   if (response.status === 410) {
-    throw new Error(await readSharedLinkUnavailableMessage(response));
+    throw new SharedWorkspaceRequestError(SHARED_LINK_UNAVAILABLE_MESSAGE, {
+      status: response.status,
+    });
+  }
+
+  throw new SharedWorkspaceRequestError(SHARED_PARTICIPATION_FAILED_MESSAGE, {
+    status: response.status,
+  });
+}
+
+async function readParticipation(response: Response) {
+  throwIfSharedParticipationFailed(response);
+
+  try {
+    return toParticipation(await response.json() as ParticipationResponse);
+  } catch {
+    throw new SharedWorkspaceRequestError(SHARED_PARTICIPATION_FAILED_MESSAGE, {
+      status: response.status,
+    });
   }
 }
 
@@ -181,27 +245,13 @@ export async function fetchBlockParticipation(
   workspaceId: string,
   decisionBlockId: string,
   anonymousKey: string,
-): Promise<SharedParticipation | null> {
-  try {
-    const query = new URLSearchParams({ decisionBlockId, anonymousKey });
-    const response = await fetch(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/participation?${query.toString()}`,
-    );
+): Promise<SharedParticipation> {
+  const query = new URLSearchParams({ decisionBlockId, anonymousKey });
+  const response = await fetchParticipationResponse(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/participation?${query.toString()}`,
+  );
 
-    await throwIfSharedLinkUnavailable(response);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return toParticipation(await response.json() as ParticipationResponse);
-  } catch (error) {
-    if (isSharedLinkUnavailableError(error)) {
-      throw error;
-    }
-
-    return null;
-  }
+  return readParticipation(response);
 }
 
 export async function submitSharedVote(
@@ -209,28 +259,14 @@ export async function submitSharedVote(
   decisionBlockId: string,
   optionId: string,
   anonymousKey: string,
-): Promise<SharedParticipation | null> {
-  try {
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/votes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisionBlockId, optionId, anonymousKey }),
-    });
+): Promise<SharedParticipation> {
+  const response = await fetchParticipationResponse(`/api/workspaces/${encodeURIComponent(workspaceId)}/votes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decisionBlockId, optionId, anonymousKey }),
+  });
 
-    await throwIfSharedLinkUnavailable(response);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return toParticipation(await response.json() as ParticipationResponse);
-  } catch (error) {
-    if (isSharedLinkUnavailableError(error)) {
-      throw error;
-    }
-
-    return null;
-  }
+  return readParticipation(response);
 }
 
 export async function submitSharedOpinion(
@@ -238,26 +274,12 @@ export async function submitSharedOpinion(
   decisionBlockId: string,
   content: string,
   anonymousKey: string,
-): Promise<SharedParticipation | null> {
-  try {
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/opinions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisionBlockId, content, anonymousKey }),
-    });
+): Promise<SharedParticipation> {
+  const response = await fetchParticipationResponse(`/api/workspaces/${encodeURIComponent(workspaceId)}/opinions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decisionBlockId, content, anonymousKey }),
+  });
 
-    await throwIfSharedLinkUnavailable(response);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return toParticipation(await response.json() as ParticipationResponse);
-  } catch (error) {
-    if (isSharedLinkUnavailableError(error)) {
-      throw error;
-    }
-
-    return null;
-  }
+  return readParticipation(response);
 }

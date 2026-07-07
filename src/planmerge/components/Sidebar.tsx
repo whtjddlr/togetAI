@@ -32,7 +32,7 @@ export function Sidebar({
     { label: '병합 결과', view: 'merge' as const },
     { label: '분석 Inspector', view: 'inspector' as const },
     { label: 'Review Queue', view: 'openQuestions' as const },
-  ];
+  ].filter((item) => !sharedMode || (item.view !== 'setup' && item.view !== 'drafts'));
 
   return (
     <div className="flex w-full flex-shrink-0 flex-col border-b border-gray-200 bg-gray-50 md:h-dvh md:w-60 md:border-b-0 md:border-r">

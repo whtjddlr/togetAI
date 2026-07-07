@@ -25,6 +25,9 @@ import type { OpinionClusteringResult, OpinionClusterStateScope } from '../lib/a
 import {
   fetchBlockParticipation,
   SHARED_LINK_UNAVAILABLE_MESSAGE,
+  SHARED_PARTICIPATION_FAILED_MESSAGE,
+  SHARED_RATE_LIMIT_MESSAGE,
+  SharedWorkspaceRequestError,
   submitSharedOpinion,
   submitSharedVote,
 } from '../lib/sharedWorkspaceClient';
@@ -36,6 +39,14 @@ type DecisionPanelProps = {
   localWorkspaceId: string | null;
   sharedWorkspaceId?: string | null;
   onApplyDecisionOption?: (decisionBlockId: string, optionId: string) => void;
+};
+
+type SharedPendingAction = 'vote' | 'opinion';
+
+type SharedActionErrorState = {
+  action: SharedPendingAction | 'load';
+  decisionBlockId: string;
+  message: string;
 };
 
 function toSharedDecisionVote(
@@ -111,11 +122,13 @@ function AnonymousVotePanel({
   trace,
   votes,
   shared,
+  disabled,
   onVote,
 }: {
   trace: DecisionTrace;
   votes?: DecisionVote;
   shared?: boolean;
+  disabled?: boolean;
   onVote: (optionId: string) => void;
 }) {
   const options = useMemo(() => buildVoteOptions(trace), [trace]);
@@ -141,7 +154,8 @@ function AnonymousVotePanel({
                 selected
                   ? 'border-blue-300 bg-blue-50/50'
                   : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
-              }`}
+              } disabled:cursor-wait disabled:opacity-70`}
+              disabled={disabled}
               onClick={() => onVote(option.id)}
             >
               <div className="mb-2 flex items-start justify-between gap-3">
@@ -177,15 +191,20 @@ function AnonymousVotePanel({
 function OpinionPanel({
   opinions,
   draftOpinion,
+  errorMessage,
+  submitting,
   onDraftChange,
   onSubmit,
 }: {
   opinions: AnonymousOpinion[];
   draftOpinion: string;
+  errorMessage?: string;
+  submitting?: boolean;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
 }) {
   const canSubmit = draftOpinion.trim().length > 0;
+  const buttonDisabled = !canSubmit || Boolean(submitting);
 
   return (
     <div>
@@ -220,15 +239,20 @@ function OpinionPanel({
         <button
           type="button"
           className={`mt-2 w-full rounded-md px-3 py-2 text-sm transition-colors ${
-            canSubmit
+            !buttonDisabled
               ? 'bg-gray-900 text-white hover:bg-gray-800'
               : 'cursor-not-allowed bg-gray-100 text-gray-400'
           }`}
-          disabled={!canSubmit}
+          disabled={buttonDisabled}
           onClick={onSubmit}
         >
-          익명 의견 등록
+          {submitting ? '등록 중' : '익명 의견 등록'}
         </button>
+        {errorMessage && (
+          <div className="mt-2 rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
+            {errorMessage}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -341,6 +365,22 @@ function EmptyDecisionState({ label }: { label: string }) {
   );
 }
 
+function getSharedParticipationErrorMessage(error: unknown) {
+  if (error instanceof SharedWorkspaceRequestError) {
+    if (error.status === 429) {
+      return SHARED_RATE_LIMIT_MESSAGE;
+    }
+
+    if (error.status === 410) {
+      return SHARED_LINK_UNAVAILABLE_MESSAGE;
+    }
+
+    return SHARED_PARTICIPATION_FAILED_MESSAGE;
+  }
+
+  return SHARED_PARTICIPATION_FAILED_MESSAGE;
+}
+
 function ApplyOptionButton({
   optionId,
   decisionBlockId,
@@ -392,8 +432,8 @@ export function DecisionPanel({
   );
   const [sharedParticipationByBlock, setSharedParticipationByBlock] =
     useState<Record<string, SharedParticipation>>({});
-  const [sharedActionPending, setSharedActionPending] = useState(false);
-  const [sharedActionError, setSharedActionError] = useState<string | null>(null);
+  const [sharedPendingAction, setSharedPendingAction] = useState<SharedPendingAction | null>(null);
+  const [sharedActionError, setSharedActionError] = useState<SharedActionErrorState | null>(null);
   const sharedParticipation = sharedParticipationByBlock[trace.decisionBlockId] ?? null;
 
   const applySharedParticipation = useCallback((decisionBlockId: string, participation: SharedParticipation) => {
@@ -416,6 +456,13 @@ export function DecisionPanel({
     : participationState.opinionsByDecisionBlock[trace.decisionBlockId] ?? trace.opinions;
   const decisionClusterResult = clusterResults.resultsByDecisionBlock[trace.decisionBlockId];
   const draftOpinion = draftOpinions[trace.decisionBlockId] ?? '';
+  const currentBlockError = sharedActionError?.decisionBlockId === trace.decisionBlockId
+    ? sharedActionError
+    : null;
+  const sharedVoteErrorMessage =
+    currentBlockError && currentBlockError.action !== 'opinion' ? currentBlockError.message : null;
+  const sharedOpinionErrorMessage =
+    currentBlockError?.action === 'opinion' ? currentBlockError.message : undefined;
 
   useEffect(() => {
     // 공유 모드에서는 서버가 단일 소스이므로 로컬 참여 상태를 건드리지 않는다.
@@ -451,7 +498,11 @@ export function DecisionPanel({
         }
       } catch (error) {
         if (!cancelled) {
-          setSharedActionError(error instanceof Error ? error.message : SHARED_LINK_UNAVAILABLE_MESSAGE);
+          setSharedActionError({
+            action: 'load',
+            decisionBlockId,
+            message: getSharedParticipationErrorMessage(error),
+          });
         }
       }
     })();
@@ -463,13 +514,14 @@ export function DecisionPanel({
 
   const handleVote = (optionId: string) => {
     if (sharedWorkspaceId) {
-      if (sharedActionPending) {
+      if (sharedPendingAction) {
         return;
       }
 
       const decisionBlockId = trace.decisionBlockId;
 
-      setSharedActionPending(true);
+      setSharedPendingAction('vote');
+      setSharedActionError(null);
       void (async () => {
         try {
           const participation = await submitSharedVote(
@@ -479,14 +531,16 @@ export function DecisionPanel({
             anonymousClientId,
           );
 
-          if (participation) {
-            applySharedParticipation(decisionBlockId, participation);
-          }
+          applySharedParticipation(decisionBlockId, participation);
         } catch (error) {
-          setSharedActionError(error instanceof Error ? error.message : SHARED_LINK_UNAVAILABLE_MESSAGE);
+          setSharedActionError({
+            action: 'vote',
+            decisionBlockId,
+            message: getSharedParticipationErrorMessage(error),
+          });
+        } finally {
+          setSharedPendingAction(null);
         }
-
-        setSharedActionPending(false);
       })();
 
       return;
@@ -526,13 +580,14 @@ export function DecisionPanel({
     };
 
     if (sharedWorkspaceId) {
-      if (sharedActionPending) {
+      if (sharedPendingAction) {
         return;
       }
 
       const decisionBlockId = trace.decisionBlockId;
 
-      setSharedActionPending(true);
+      setSharedPendingAction('opinion');
+      setSharedActionError(null);
       void (async () => {
         try {
           const participation = await submitSharedOpinion(
@@ -542,15 +597,17 @@ export function DecisionPanel({
             anonymousClientId,
           );
 
-          if (participation) {
-            applySharedParticipation(decisionBlockId, participation);
-            clearDraft();
-          }
+          applySharedParticipation(decisionBlockId, participation);
+          clearDraft();
         } catch (error) {
-          setSharedActionError(error instanceof Error ? error.message : SHARED_LINK_UNAVAILABLE_MESSAGE);
+          setSharedActionError({
+            action: 'opinion',
+            decisionBlockId,
+            message: getSharedParticipationErrorMessage(error),
+          });
+        } finally {
+          setSharedPendingAction(null);
         }
-
-        setSharedActionPending(false);
       })();
 
       return;
@@ -668,12 +725,13 @@ export function DecisionPanel({
           trace={trace}
           votes={decisionVote}
           shared={Boolean(sharedWorkspaceId)}
+          disabled={sharedPendingAction !== null}
           onVote={handleVote}
         />
 
-        {sharedWorkspaceId && sharedActionError && (
+        {sharedWorkspaceId && sharedVoteErrorMessage && (
           <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
-            {sharedActionError}
+            {sharedVoteErrorMessage}
           </div>
         )}
 
@@ -744,6 +802,8 @@ export function DecisionPanel({
         <OpinionPanel
           opinions={decisionOpinions}
           draftOpinion={draftOpinion}
+          errorMessage={sharedOpinionErrorMessage}
+          submitting={sharedPendingAction === 'opinion'}
           onDraftChange={(value) => setDraftOpinions((current) => ({
             ...current,
             [trace.decisionBlockId]: value,

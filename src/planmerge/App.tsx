@@ -65,6 +65,8 @@ import type { DocumentSectionData } from './data/mergeResult';
 
 type AnalysisStatus = 'idle' | 'analyzing' | 'completed';
 
+const SHARED_READ_ONLY_NOTICE = '공유 보기에서는 사용할 수 없습니다.';
+
 export default function App() {
   const [activeView, setActiveView] = useState<AppView>('setup');
   const [activeSection, setActiveSection] = useState(7);
@@ -109,6 +111,8 @@ export default function App() {
   const workspaceScopeKey = sharedWorkspaceId
     ? `shared:${sharedWorkspaceId}`
     : `local:${activeWorkspaceId ?? 'pending'}`;
+  const sharedMode = Boolean(sharedWorkspaceId);
+  const effectiveActiveView = sharedMode && isSharedRestrictedView(activeView) ? 'merge' : activeView;
   const qualityLevel = useMemo<QualityLevel | null>(() => {
     if (!workspaceState.analysisResult) {
       return null;
@@ -175,6 +179,7 @@ export default function App() {
           setOwnedShareAccess(loadSharedWorkspaceOwnerAccess(wsId));
           setWorkspaceState(shared.state);
           setAnalysisStatus(shared.state.analysisResult ? 'completed' : 'idle');
+          setActiveView('merge');
           setHasLoadedWorkspace(true);
 
           if (shared.warnings.length > 0) {
@@ -317,7 +322,22 @@ export default function App() {
     setActiveView('merge');
   };
 
+  const changeView = (view: AppView) => {
+    if (sharedWorkspaceId && isSharedRestrictedView(view)) {
+      setActiveView('merge');
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
+    setActiveView(view);
+  };
+
   const approveDecision = () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     if (analysisStatus === 'analyzing') {
       return;
     }
@@ -340,6 +360,11 @@ export default function App() {
   };
 
   const saveProject = (project: ProjectSettings) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     setWorkspaceState((current) => ({
       ...current,
       project,
@@ -349,6 +374,11 @@ export default function App() {
   };
 
   const loadSampleWorkspace = () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     if (activeWorkspaceId !== SAMPLE_WORKSPACE_ID && !persistActiveWorkspace()) {
       return;
     }
@@ -374,6 +404,11 @@ export default function App() {
   };
 
   const submitDraft = (draft: DraftFormInput) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     setWorkspaceState((current) => ({
       ...current,
       approvedBlockIds: [],
@@ -386,6 +421,11 @@ export default function App() {
   };
 
   const deleteDraft = (draftId: string) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     setWorkspaceState((current) => ({
       ...current,
       approvedBlockIds: [],
@@ -395,6 +435,11 @@ export default function App() {
   };
 
   const reanalyze = async () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     if (analysisStatus === 'analyzing') {
       return;
     }
@@ -463,6 +508,11 @@ export default function App() {
   };
 
   const importWorkspace = () => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     workspaceImportInputRef.current?.click();
   };
 
@@ -527,6 +577,12 @@ export default function App() {
   };
 
   const importWorkspaceFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      event.currentTarget.value = '';
+      return;
+    }
+
     const file = event.currentTarget.files?.[0];
 
     event.currentTarget.value = '';
@@ -580,6 +636,11 @@ export default function App() {
   };
 
   const applyDecisionOption = (decisionBlockId: string, optionId: string) => {
+    if (sharedWorkspaceId) {
+      showNotice(SHARED_READ_ONLY_NOTICE);
+      return;
+    }
+
     const currentBlock = workspaceState.analysisResult?.decisionBlocks.find((block) => block.id === decisionBlockId);
     const currentOption = currentBlock?.options.find((option) => option.id === optionId);
 
@@ -621,7 +682,7 @@ export default function App() {
   };
 
   const renderContent = () => {
-    if (activeView === 'setup') {
+    if (effectiveActiveView === 'setup') {
       return (
         <ProjectSetupPage
           key={createProjectSettingsKey(workspaceState.project)}
@@ -632,7 +693,7 @@ export default function App() {
       );
     }
 
-    if (activeView === 'drafts') {
+    if (effectiveActiveView === 'drafts') {
       return (
         <DraftSubmitPage
           analysisStatus={analysisStatus}
@@ -644,7 +705,7 @@ export default function App() {
       );
     }
 
-    if (activeView === 'openQuestions') {
+    if (effectiveActiveView === 'openQuestions') {
       return (
         <OpenQuestionsPage
           documentSections={mergeSections}
@@ -653,7 +714,7 @@ export default function App() {
       );
     }
 
-    if (activeView === 'inspector') {
+    if (effectiveActiveView === 'inspector') {
       return (
         <AnalysisInspectorPage
           project={workspaceState.project}
@@ -662,6 +723,7 @@ export default function App() {
           analysisStatus={analysisStatus}
           decisionLogs={workspaceState.decisionLogs}
           onRunAnalysis={reanalyze}
+          readOnly={sharedMode}
         />
       );
     }
@@ -674,8 +736,9 @@ export default function App() {
       return (
         <MergePreparationView
           draftCount={workspaceState.drafts.length}
-          onAddDraft={() => setActiveView('drafts')}
+          onAddDraft={() => changeView('drafts')}
           onRunAnalysis={reanalyze}
+          readOnly={sharedMode}
         />
       );
     }
@@ -699,7 +762,7 @@ export default function App() {
             analysisRunId={workspaceState.analysisRunId}
             localWorkspaceId={activeWorkspaceId}
             sharedWorkspaceId={sharedWorkspaceId}
-            onApplyDecisionOption={applyDecisionOption}
+            onApplyDecisionOption={sharedMode ? undefined : applyDecisionOption}
           />
         )}
       </>
@@ -709,19 +772,19 @@ export default function App() {
   return (
     <div className="flex h-dvh w-full min-w-0 flex-col bg-white md:flex-row">
       <Sidebar
-        activeView={activeView}
+        activeView={effectiveActiveView}
         activeWorkspaceId={activeWorkspaceId}
         analysisStatus={analysisStatus}
-        sharedMode={Boolean(sharedWorkspaceId)}
+        sharedMode={sharedMode}
         workspaces={workspaceRegistry}
         onCreateWorkspace={createNewWorkspace}
         onDeleteWorkspace={deleteWorkspace}
         onSwitchWorkspace={switchWorkspace}
-        onViewChange={setActiveView}
+        onViewChange={changeView}
       />
       <div className="flex-1 min-w-0 flex flex-col">
         <Toolbar
-          activeView={activeView}
+          activeView={effectiveActiveView}
           approvalStatus={approvalStatus}
           analysisStatus={analysisStatus}
           draftCount={workspaceState.drafts.length}
@@ -734,11 +797,11 @@ export default function App() {
           onReanalyze={reanalyze}
           onRevokeSharedWorkspace={revokeCurrentSharedWorkspace}
           onShareWorkspace={shareWorkspace}
-          onViewChange={setActiveView}
+          onViewChange={changeView}
           projectTitle={workspaceState.project.title}
           qualityLevel={qualityLevel}
           canRevokeSharedWorkspace={Boolean(ownedShareAccess?.manageToken)}
-          sharedMode={Boolean(sharedWorkspaceId)}
+          sharedMode={sharedMode}
         />
         <input
           ref={workspaceImportInputRef}
@@ -764,10 +827,10 @@ export default function App() {
         )}
         {sharedWorkspaceId && (
           <div className="border-b border-blue-100 bg-blue-50 px-8 py-2 text-sm text-blue-800">
-            팀 공유 워크스페이스입니다. 투표와 익명 의견이 참여자 전체 기준으로 집계됩니다. 문서 편집은 이 브라우저에만 유지됩니다.
+            공유된 워크스페이스를 보고 있습니다. 투표와 의견만 반영됩니다.
           </div>
         )}
-        {activeView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && !sampleWorkspace && (
+        {effectiveActiveView === 'merge' && workspaceState.analysisResult?.source === 'local_harness' && !sampleWorkspace && (
           <div className="border-b border-amber-100 bg-amber-50 px-8 py-2 text-sm text-amber-800">
             로컬 하네스 결과입니다. 실제 모델 호출 전 구조 검증과 화면 연결 확인에 사용합니다.
           </div>
@@ -784,10 +847,12 @@ function MergePreparationView({
   draftCount,
   onAddDraft,
   onRunAnalysis,
+  readOnly,
 }: {
   draftCount: number;
   onAddDraft: () => void;
   onRunAnalysis: () => void;
+  readOnly: boolean;
 }) {
   const hasDrafts = draftCount > 0;
 
@@ -797,42 +862,48 @@ function MergePreparationView({
         <div className="text-xs text-gray-500">Merge Result</div>
         <h2 className="mt-2 text-2xl text-gray-900">아직 병합 결과가 없습니다.</h2>
         <p className="mt-3 text-sm leading-relaxed text-gray-600">
-          프로젝트 기준을 저장하고 AI 초안을 붙여넣은 뒤 분석을 실행하면, 최종 기획서와 섹션별 선택 근거가 생성됩니다.
+          {readOnly
+            ? '이 공유 워크스페이스에는 표시할 병합 결과가 없습니다.'
+            : '프로젝트 기준을 저장하고 AI 초안을 붙여넣은 뒤 분석을 실행하면, 최종 기획서와 섹션별 선택 근거가 생성됩니다.'}
         </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-md border border-gray-200 p-4">
-            <div className="text-sm text-gray-900">1. 프로젝트 설정</div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">목표, 공통 기준, 제외 범위를 먼저 고정합니다.</p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-4">
-            <div className="text-sm text-gray-900">2. 초안 입력</div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">팀원이 AI로 만든 초안을 여러 개 붙여넣습니다.</p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-4">
-            <div className="text-sm text-gray-900">3. 병합 분석</div>
-            <p className="mt-2 text-xs leading-relaxed text-gray-500">선택안, 대안, 충돌 의견을 Decision Block으로 정리합니다.</p>
-          </div>
-        </div>
+        {!readOnly && (
+          <>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md border border-gray-200 p-4">
+                <div className="text-sm text-gray-900">1. 프로젝트 설정</div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">목표, 공통 기준, 제외 범위를 먼저 고정합니다.</p>
+              </div>
+              <div className="rounded-md border border-gray-200 p-4">
+                <div className="text-sm text-gray-900">2. 초안 입력</div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">팀원이 AI로 만든 초안을 여러 개 붙여넣습니다.</p>
+              </div>
+              <div className="rounded-md border border-gray-200 p-4">
+                <div className="text-sm text-gray-900">3. 병합 분석</div>
+                <p className="mt-2 text-xs leading-relaxed text-gray-500">선택안, 대안, 충돌 의견을 Decision Block으로 정리합니다.</p>
+              </div>
+            </div>
 
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
-            onClick={hasDrafts ? onRunAnalysis : onAddDraft}
-          >
-            {hasDrafts ? `${draftCount}개 초안으로 분석 실행` : '초안 입력하기'}
-          </button>
-          {hasDrafts && (
-            <button
-              type="button"
-              className="rounded-md border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
-              onClick={onAddDraft}
-            >
-              초안 더 추가
-            </button>
-          )}
-        </div>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700"
+                onClick={hasDrafts ? onRunAnalysis : onAddDraft}
+              >
+                {hasDrafts ? `${draftCount}개 초안으로 분석 실행` : '초안 입력하기'}
+              </button>
+              {hasDrafts && (
+                <button
+                  type="button"
+                  className="rounded-md border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                  onClick={onAddDraft}
+                >
+                  초안 더 추가
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </main>
   );
@@ -904,6 +975,10 @@ function removeSharedWorkspaceIdFromUrl() {
 
   url.searchParams.delete('ws');
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function isSharedRestrictedView(view: AppView) {
+  return view === 'setup' || view === 'drafts';
 }
 
 function createDecisionOverrideLog(
