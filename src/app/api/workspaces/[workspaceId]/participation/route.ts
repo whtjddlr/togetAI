@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { isDatabaseConfigured } from '@/server/db';
 import {
   findSharedWorkspaceAccessDetails,
@@ -18,7 +19,12 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
-  const rateLimit = await checkRateLimit('workspaces-participation', getClientKey(request), RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspaces-participation',
+    getClientKey(request, session?.user?.id),
+    RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

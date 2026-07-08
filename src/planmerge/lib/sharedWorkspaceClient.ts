@@ -26,6 +26,19 @@ export type SharedWorkspaceUpdateResult = {
   expiresAt: string;
 };
 
+export type MySharedWorkspaceSummary = {
+  id: string;
+  title: string;
+  snapshotVersion: number;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  participation: {
+    totalVoters: number;
+    totalOpinions: number;
+  };
+};
+
 export type SharedWorkspaceDraft = {
   id: string;
   authorName: string;
@@ -116,6 +129,16 @@ function readPositiveInteger(value: unknown) {
     : undefined;
 }
 
+function readNonNegativeInteger(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function readNullableString(value: unknown) {
+  return typeof value === 'string' || value === null ? value : undefined;
+}
+
 function toSharedWorkspaceDraft(value: unknown): SharedWorkspaceDraft | null {
   if (!isRecord(value)) {
     return null;
@@ -139,6 +162,44 @@ function toSharedWorkspaceDraft(value: unknown): SharedWorkspaceDraft | null {
     taskTitle: value.taskTitle,
     rawText: value.rawText,
     createdAt: value.createdAt,
+  };
+}
+
+function toMySharedWorkspaceSummary(value: unknown): MySharedWorkspaceSummary | null {
+  if (!isRecord(value) || !isRecord(value.participation)) {
+    return null;
+  }
+
+  const snapshotVersion = readPositiveInteger(value.snapshotVersion);
+  const totalVoters = readNonNegativeInteger(value.participation.totalVoters);
+  const totalOpinions = readNonNegativeInteger(value.participation.totalOpinions);
+  const expiresAt = readNullableString(value.expiresAt);
+  const revokedAt = readNullableString(value.revokedAt);
+
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.title !== 'string' ||
+    !snapshotVersion ||
+    expiresAt === undefined ||
+    revokedAt === undefined ||
+    typeof value.createdAt !== 'string' ||
+    totalVoters === undefined ||
+    totalOpinions === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    title: value.title,
+    snapshotVersion,
+    expiresAt,
+    revokedAt,
+    createdAt: value.createdAt,
+    participation: {
+      totalVoters,
+      totalOpinions,
+    },
   };
 }
 
@@ -310,15 +371,21 @@ export async function createSharedWorkspace(exportJson: string): Promise<SharedW
 
 export async function updateSharedWorkspace(
   workspaceId: string,
-  manageToken: string,
+  manageToken: string | undefined,
   exportJson: string,
 ): Promise<SharedWorkspaceUpdateResult> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const normalizedManageToken = manageToken?.trim();
+
+  if (normalizedManageToken) {
+    headers['x-manage-token'] = normalizedManageToken;
+  }
+
   const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-manage-token': manageToken,
-    },
+    headers,
     body: exportJson,
   });
 
@@ -352,10 +419,11 @@ export async function updateSharedWorkspace(
   };
 }
 
-export async function revokeSharedWorkspace(workspaceId: string, manageToken: string): Promise<void> {
+export async function revokeSharedWorkspace(workspaceId: string, manageToken?: string): Promise<void> {
+  const normalizedManageToken = manageToken?.trim();
   const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
     method: 'DELETE',
-    headers: { 'x-manage-token': manageToken },
+    ...(normalizedManageToken ? { headers: { 'x-manage-token': normalizedManageToken } } : {}),
   });
 
   if (!response.ok) {
@@ -366,6 +434,48 @@ export async function revokeSharedWorkspace(workspaceId: string, manageToken: st
 
   if (data.revoked !== true) {
     throw new Error('공유 링크 회수 응답이 올바르지 않습니다.');
+  }
+}
+
+export async function fetchMyWorkspaces(): Promise<MySharedWorkspaceSummary[]> {
+  let response: Response;
+
+  try {
+    response = await fetch('/api/my-workspaces');
+  } catch {
+    throw new SharedWorkspaceRequestError('내 공유 링크 목록을 불러오지 못했습니다.');
+  }
+
+  if (!response.ok) {
+    const retryAfter = getRetryAfter(response);
+
+    throw new SharedWorkspaceRequestError(
+      await readErrorMessage(response, '내 공유 링크 목록을 불러오지 못했습니다.'),
+      {
+        status: response.status,
+        ...(response.status === 429 && retryAfter !== undefined ? { retryAfter } : {}),
+      },
+    );
+  }
+
+  try {
+    const data = await response.json() as { workspaces?: unknown };
+
+    if (!Array.isArray(data.workspaces)) {
+      throw new Error('my workspaces response is missing workspaces');
+    }
+
+    const workspaces = data.workspaces.map(toMySharedWorkspaceSummary);
+
+    if (workspaces.some((workspace) => workspace === null)) {
+      throw new Error('my workspaces response contains invalid workspace');
+    }
+
+    return workspaces.filter((workspace): workspace is MySharedWorkspaceSummary => workspace !== null);
+  } catch {
+    throw new SharedWorkspaceRequestError('내 공유 링크 목록 응답이 올바르지 않습니다.', {
+      status: response.status,
+    });
   }
 }
 

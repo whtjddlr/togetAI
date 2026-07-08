@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
+import { auth } from '@/auth';
 import { parseWorkspaceImport } from '@/planmerge/lib/localWorkspace';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import {
+  canManageSharedWorkspace,
   getSharedWorkspaceAccessStatus,
-  isManageTokenMatch,
   isValidWorkspaceId,
-  MANAGE_TOKEN_MAX_LENGTH,
   SHARED_WORKSPACE_UNAVAILABLE_ERROR,
 } from '@/server/sharedWorkspace';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
@@ -24,7 +24,12 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
-  const rateLimit = await checkRateLimit('workspaces-read', getClientKey(request), RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspaces-read',
+    getClientKey(request, session?.user?.id),
+    RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -77,7 +82,12 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 export async function PUT(request: Request, context: RouteContext) {
-  const rateLimit = await checkRateLimit('workspaces-update', getClientKey(request), UPDATE_RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspaces-update',
+    getClientKey(request, session?.user?.id),
+    UPDATE_RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -117,24 +127,20 @@ export async function PUT(request: Request, context: RouteContext) {
   try {
     const workspace = await getDb().sharedWorkspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, revokedAt: true, manageTokenHash: true },
+      select: { id: true, expiresAt: true, revokedAt: true, manageTokenHash: true, createdById: true },
     });
 
     if (!workspace) {
       return NextResponse.json({ errors: ['공유 워크스페이스를 찾을 수 없습니다.'] }, { status: 404 });
     }
 
-    if (workspace.revokedAt) {
-      return NextResponse.json({ errors: ['회수된 공유 링크는 갱신할 수 없습니다.'] }, { status: 410 });
+    if (getSharedWorkspaceAccessStatus(workspace) === 'expired_or_revoked') {
+      return NextResponse.json({ errors: [SHARED_WORKSPACE_UNAVAILABLE_ERROR] }, { status: 410 });
     }
 
     const manageToken = request.headers.get('x-manage-token')?.trim();
 
-    if (
-      !manageToken ||
-      manageToken.length > MANAGE_TOKEN_MAX_LENGTH ||
-      !isManageTokenMatch(manageToken, workspace.manageTokenHash)
-    ) {
+    if (!canManageSharedWorkspace({ workspace, session, manageToken })) {
       return NextResponse.json(
         { errors: ['공유 링크를 갱신할 권한이 없습니다.'] },
         { status: 401 },
@@ -169,7 +175,12 @@ export async function PUT(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
-  const rateLimit = await checkRateLimit('workspace-revoke', getClientKey(request), REVOKE_RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspace-revoke',
+    getClientKey(request, session?.user?.id),
+    REVOKE_RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -194,7 +205,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   try {
     const workspace = await getDb().sharedWorkspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, expiresAt: true, revokedAt: true, manageTokenHash: true },
+      select: { id: true, expiresAt: true, revokedAt: true, manageTokenHash: true, createdById: true },
     });
 
     if (!workspace) {
@@ -207,11 +218,7 @@ export async function DELETE(request: Request, context: RouteContext) {
 
     const manageToken = request.headers.get('x-manage-token')?.trim();
 
-    if (
-      !manageToken ||
-      manageToken.length > MANAGE_TOKEN_MAX_LENGTH ||
-      !isManageTokenMatch(manageToken, workspace.manageTokenHash)
-    ) {
+    if (!canManageSharedWorkspace({ workspace, session, manageToken })) {
       return NextResponse.json(
         { errors: ['공유 링크를 회수할 권한이 없습니다.'] },
         { status: 401 },

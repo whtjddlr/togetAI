@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
 import {
@@ -163,7 +164,12 @@ export async function POST(request: Request, context: RouteContext) {
     return accessErrorResponse;
   }
 
-  const rateLimit = await checkRateLimit('workspace-drafts-submit', getClientKey(request), SUBMIT_RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspace-drafts-submit',
+    getClientKey(request, session?.user?.id),
+    SUBMIT_RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -248,7 +254,12 @@ export async function GET(request: Request, context: RouteContext) {
     return accessErrorResponse;
   }
 
-  const rateLimit = await checkRateLimit('workspace-drafts-read', getClientKey(request), READ_RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspace-drafts-read',
+    getClientKey(request, session?.user?.id),
+    READ_RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

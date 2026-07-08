@@ -83,7 +83,13 @@ function pruneExpiredBuckets(now: number, windowMs: number) {
   }
 }
 
-export function getClientKey(request: Request): string {
+export function getClientKey(request: Request, userId?: string): string {
+  const normalizedUserId = userId?.trim();
+
+  if (normalizedUserId) {
+    return `user:${normalizedUserId}`;
+  }
+
   const forwardedFor = request.headers.get('x-forwarded-for');
 
   if (forwardedFor) {

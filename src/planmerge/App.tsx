@@ -17,6 +17,7 @@ import { DraftSubmitPage } from './components/pages/DraftSubmitPage';
 import { OpenQuestionsPage } from './components/pages/OpenQuestionsPage';
 import { ProjectSetupPage } from './components/pages/ProjectSetupPage';
 import { AnalysisInspectorPage } from './components/pages/AnalysisInspectorPage';
+import { MySharedWorkspacesPage } from './components/pages/MySharedWorkspacesPage';
 import type { AppView } from './types/navigation';
 import {
   activateWorkspaceEntry,
@@ -631,6 +632,20 @@ export default function App() {
     }
   };
 
+  const clearRevokedSharedWorkspace = (workspaceId: string) => {
+    clearSharedWorkspaceOwnerAccess(workspaceId, activeWorkspaceId);
+    setOwnedShareAccess((current) => current?.workspaceId === workspaceId ? null : current);
+    setSharedWorkspaceLink((current) =>
+      current && getShareUrlWorkspaceId(current) === workspaceId ? null : current,
+    );
+
+    if (sharedWorkspaceId === workspaceId) {
+      setSharedWorkspaceId(null);
+      setSharedWorkspaceSnapshotVersion(null);
+      removeSharedWorkspaceIdFromUrl();
+    }
+  };
+
   const revokeCurrentSharedWorkspace = async () => {
     if (!ownedShareAccess) {
       showNotice('회수할 공유 링크를 찾지 못했습니다.');
@@ -639,18 +654,7 @@ export default function App() {
 
     try {
       await revokeSharedWorkspace(ownedShareAccess.workspaceId, ownedShareAccess.manageToken);
-      clearSharedWorkspaceOwnerAccess(ownedShareAccess.workspaceId, activeWorkspaceId);
-      setOwnedShareAccess(null);
-      setSharedWorkspaceLink((current) =>
-        current && getShareUrlWorkspaceId(current) === ownedShareAccess.workspaceId ? null : current,
-      );
-
-      if (sharedWorkspaceId === ownedShareAccess.workspaceId) {
-        setSharedWorkspaceId(null);
-        setSharedWorkspaceSnapshotVersion(null);
-        removeSharedWorkspaceIdFromUrl();
-      }
-
+      clearRevokedSharedWorkspace(ownedShareAccess.workspaceId);
       showNotice('공유 링크를 회수했습니다.');
     } catch (error) {
       showNotice(error instanceof Error ? error.message : '공유 링크 회수에 실패했습니다.');
@@ -811,6 +815,10 @@ export default function App() {
           readOnly={sharedMode}
         />
       );
+    }
+
+    if (effectiveActiveView === 'myShares') {
+      return <MySharedWorkspacesPage onNotice={showNotice} onShareRevoked={clearRevokedSharedWorkspace} />;
     }
 
     if (analysisStatus === 'analyzing') {

@@ -50,6 +50,11 @@ const viewCopy: Record<AppView, { title: string; subtitle: string; breadcrumb: s
     subtitle: '내보내기 전에 처리할 충돌, 검토, 입력 부족 섹션을 정리합니다',
     breadcrumb: '프로젝트 / Review Queue',
   },
+  myShares: {
+    title: '내 공유 링크',
+    subtitle: '로그인한 계정으로 만든 공유 링크를 관리합니다',
+    breadcrumb: '계정 / 내 공유 링크',
+  },
 };
 
 export function Toolbar({
@@ -228,7 +233,7 @@ export function Toolbar({
               </div>
             )}
           </div>
-          <AuthControl />
+          <AuthControl onOpenMyShares={() => onViewChange('myShares')} />
         </div>
       </div>
     </div>

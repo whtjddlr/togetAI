@@ -2,7 +2,11 @@
 
 import { signIn, signOut, useSession } from 'next-auth/react';
 
-export function AuthControl() {
+type AuthControlProps = {
+  onOpenMyShares: () => void;
+};
+
+export function AuthControl({ onOpenMyShares }: AuthControlProps) {
   const { data: session, status } = useSession();
   const user = session?.user;
   const displayName = user?.name?.trim() || user?.email?.trim() || '사용자';
@@ -13,7 +17,7 @@ export function AuthControl() {
     return (
       <div
         data-testid="auth-user-menu"
-        className="flex h-9 max-w-64 flex-shrink-0 items-center gap-2 rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-700"
+        className="flex h-9 max-w-96 flex-shrink-0 items-center gap-2 rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-700"
       >
         {avatarImage ? (
           <span
@@ -27,6 +31,13 @@ export function AuthControl() {
           </span>
         )}
         <span className="min-w-0 truncate">{displayName}</span>
+        <button
+          type="button"
+          className="flex-shrink-0 rounded px-2 py-1 text-xs text-blue-700 transition-colors hover:bg-blue-50"
+          onClick={onOpenMyShares}
+        >
+          내 공유 링크
+        </button>
         <button
           type="button"
           className="flex-shrink-0 rounded px-2 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import {
   getBlockParticipation,
@@ -19,7 +20,12 @@ type RouteContext = {
 };
 
 export async function POST(request: Request, context: RouteContext) {
-  const rateLimit = await checkRateLimit('workspaces-opinion', getClientKey(request), RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'workspaces-opinion',
+    getClientKey(request, session?.user?.id),
+    RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

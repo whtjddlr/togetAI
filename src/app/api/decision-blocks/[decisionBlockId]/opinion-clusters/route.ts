@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import {
   buildOpinionClusteringPrompt,
   createLocalFallbackClusters,
@@ -37,7 +38,12 @@ function readClusterResponse(response: { clusters?: OpinionCluster[] }) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const rateLimit = await checkRateLimit('opinion-clusters', getClientKey(request), RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'opinion-clusters',
+    getClientKey(request, session?.user?.id),
+    RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
+import { auth } from '@/auth';
 import { parseWorkspaceImport } from '@/planmerge/lib/localWorkspace';
 import { getDb, isDatabaseConfigured } from '@/server/db';
 import { checkRateLimit, getClientKey } from '@/server/rateLimit';
@@ -15,7 +16,13 @@ function createManageToken() {
 }
 
 export async function POST(request: Request) {
-  const rateLimit = await checkRateLimit('workspaces-create', getClientKey(request), RATE_LIMIT);
+  const session = await auth();
+  const sessionUserId = session?.user?.id?.trim() || undefined;
+  const rateLimit = await checkRateLimit(
+    'workspaces-create',
+    getClientKey(request, sessionUserId),
+    RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(
@@ -56,6 +63,7 @@ export async function POST(request: Request) {
         snapshot: parsed.state as unknown as Prisma.InputJsonValue,
         expiresAt,
         manageTokenHash: hashManageToken(manageToken),
+        createdById: sessionUserId,
       },
       select: { id: true, expiresAt: true, snapshotVersion: true },
     });

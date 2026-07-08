@@ -14,7 +14,8 @@ model User {
   image         String?
   createdAt     DateTime  @default(now())
 
-  accounts Account[]
+  accounts         Account[]
+  sharedWorkspaces SharedWorkspace[]
 }
 
 model Account {
@@ -295,10 +296,14 @@ model SharedWorkspace {
   expiresAt       DateTime?
   revokedAt       DateTime?
   manageTokenHash String?
+  createdById     String?
 
-  votes    SharedWorkspaceVote[]
-  opinions SharedWorkspaceOpinion[]
-  drafts   SharedWorkspaceDraft[]
+  createdBy User?                    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  votes     SharedWorkspaceVote[]
+  opinions  SharedWorkspaceOpinion[]
+  drafts    SharedWorkspaceDraft[]
+
+  @@index([createdById])
 }
 
 model SharedWorkspaceDraft {
