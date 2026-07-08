@@ -12,6 +12,14 @@ test.describe('PlanMerge auth toolbar', () => {
     await page.goto('/');
 
     await expect(page.getByTestId('auth-user-menu')).toContainText('e2e-auth-user');
+    await expect(page.getByRole('button', { name: '내 공유 링크' })).toBeVisible();
+
+    await page.getByRole('button', { name: '내 공유 링크' }).click();
+
+    await expect(page.getByTestId('my-shared-workspaces-page')).toBeVisible();
+    await expect(page.locator(
+      '[data-testid="my-shares-empty"], [data-testid="my-shares-error"], [data-testid="my-shares-list"]',
+    )).toBeVisible();
 
     await page.getByRole('button', { name: /^로그아웃$/ }).click();
 

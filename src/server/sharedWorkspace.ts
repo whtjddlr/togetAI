@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import type { Session } from 'next-auth';
 import { getDb } from './db';
 
 const WORKSPACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,6 +31,33 @@ export function isManageTokenMatch(manageToken: string, manageTokenHash: string 
   const actual = Buffer.from(actualHash, 'hex');
 
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+type ManageableSharedWorkspace = {
+  createdById: string | null;
+  manageTokenHash: string | null;
+};
+
+export function canManageSharedWorkspace({
+  workspace,
+  session,
+  manageToken,
+}: {
+  workspace: ManageableSharedWorkspace;
+  session: Session | null;
+  manageToken?: string | null;
+}) {
+  const sessionUserId = session?.user?.id?.trim();
+
+  if (sessionUserId && workspace.createdById === sessionUserId) {
+    return true;
+  }
+
+  const normalizedManageToken = manageToken?.trim();
+
+  return normalizedManageToken
+    ? isManageTokenMatch(normalizedManageToken, workspace.manageTokenHash)
+    : false;
 }
 
 export function readRequiredString(value: unknown, maxLength: number) {

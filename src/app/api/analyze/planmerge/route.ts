@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import {
   buildDraftNormalizePrompt,
   buildMergeNormalizedIdeasPrompt,
@@ -465,7 +466,12 @@ function uniqueId(prefix: string, existingIds: Set<string>) {
 }
 
 export async function POST(request: Request) {
-  const rateLimit = await checkRateLimit('analyze-planmerge', getClientKey(request), RATE_LIMIT);
+  const session = await auth();
+  const rateLimit = await checkRateLimit(
+    'analyze-planmerge',
+    getClientKey(request, session?.user?.id),
+    RATE_LIMIT,
+  );
 
   if (!rateLimit.allowed) {
     return NextResponse.json(

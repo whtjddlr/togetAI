@@ -1,1 +1,1 @@
-export type AppView = 'setup' | 'drafts' | 'merge' | 'inspector' | 'openQuestions';
+export type AppView = 'setup' | 'drafts' | 'merge' | 'inspector' | 'openQuestions' | 'myShares';
